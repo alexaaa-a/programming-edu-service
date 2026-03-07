@@ -1,6 +1,7 @@
 import logging
 
 from motor.motor_asyncio import AsyncIOMotorClient
+from typing import Any
 
 from user_service.app.application.dto import UserDTO
 from user_service.app.application.interfaces.db.user_repo import UserRepositoryInterface
@@ -10,7 +11,7 @@ from user_service.app.config import Settings
 class UserRepository(UserRepositoryInterface):
     def __init__(
             self,
-            client: AsyncIOMotorClient,
+            client: AsyncIOMotorClient[Any],
             settings: Settings,
             logger: logging.Logger
     ):

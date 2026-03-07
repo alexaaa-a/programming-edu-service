@@ -29,25 +29,24 @@ class RedisSettings(BaseSettings):
     host: str
     port: int
     db: int
+    cache_ttl_sec: int = 300
 
     model_config = SettingsConfigDict(env_prefix="REDIS_")
+
+
+class TokenSettings(BaseSettings):
+    secret_key: str
+    algorithm: str
+
+    model_config = SettingsConfigDict(env_prefix="TOKEN_")
 
 
 class LoggingSettings(BaseSettings):
     level: str = "INFO"
 
 
-class RegisterSettings(BaseSettings):
-    ttl_refresh: int = 604800
-    secret_key: str
-    algorithm: str
-    access_token_expire: int = 900
-
-    model_config = SettingsConfigDict(env_prefix="REGISTER_")
-
-
 class Settings(BaseSettings):
-    redis_settings: RedisSettings = RedisSettings() # type: ignore[call-arg]
-    mongo_settings: MongoSettings = MongoSettings() # type: ignore[call-arg]
+    mongo_settings: MongoSettings = MongoSettings()  # type: ignore[call-arg]
+    redis_settings: RedisSettings = RedisSettings()  # type: ignore[call-arg]
+    token_settings: TokenSettings = TokenSettings()  # type: ignore[call-arg]
     logging_settings: LoggingSettings = LoggingSettings()
-    register_settings: RegisterSettings = RegisterSettings() # type: ignore[call-arg]

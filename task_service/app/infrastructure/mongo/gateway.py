@@ -1,8 +1,8 @@
 import logging
-from motor.motor_asyncio import AsyncIOMotorClient
 from typing import Any
+from motor.motor_asyncio import AsyncIOMotorClient
 
-from user_service.app.application.interfaces.db.mongo_db import MongoDBInterface
+from task_service.app.application.interfaces.db.mongodb import MongoDBInterface
 
 
 class MongoGateway(MongoDBInterface):

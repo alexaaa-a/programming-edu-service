@@ -5,12 +5,12 @@ from dishka.integrations.fastapi import setup_dishka
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from user_service.app.config import Settings
-from user_service.app.setup.ioc import create_container
-from user_service.app.infrastructure.logger import setup_logging
-from user_service.app.presentation.api.healthcheck import router as healthcheck_router
-from user_service.app.presentation.api.exception_handler import setup_error_handlers
-from user_service.app.presentation.api.v1.app import app as app_v1
+from task_service.app.config import Settings
+from task_service.app.setup.ioc import create_container
+from task_service.app.infrastructure.logger.setup_logging import setup_logging
+from task_service.app.presentation.api.healthcheck import router as healthcheck_router
+from task_service.app.presentation.api.exception_handler import setup_error_handlers
+from task_service.app.presentation.api.v1.router import router as v1_router
 
 
 @asynccontextmanager
@@ -25,7 +25,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         root_path="/api",
-        title="API сервиса обучения программированию",
+        title="Task Service API",
         lifespan=lifespan,
         redoc_url=None,
     )
@@ -42,9 +42,10 @@ def create_app() -> FastAPI:
     container = create_container(settings)
     setup_dishka(container, app)
 
-    app.mount("/user/v1", app_v1)
-    app.include_router(healthcheck_router, prefix="/user/health")
+    app.include_router(v1_router, prefix="/task/v1")
+    app.include_router(healthcheck_router, prefix="/task/health")
 
     return app
+
 
 app = create_app()
