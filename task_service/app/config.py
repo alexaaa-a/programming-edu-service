@@ -20,8 +20,7 @@ class MongoSettings(BaseSettings):
             username=self.username,
             password=self.password,
             host=self.host,
-            port=self.port,
-            path=self.name
+            port=self.port
         )
 
 
@@ -45,8 +44,19 @@ class LoggingSettings(BaseSettings):
     level: str = "INFO"
 
 
+class KafkaSettings(BaseSettings):
+    bootstrap_servers: str
+    topic_user_registered: str
+    topic_user_profile_updated: str
+    topic_task_created: str
+    topic_task_status_updated: str
+
+    model_config = SettingsConfigDict(env_prefix="KAFKA_")
+
+
 class Settings(BaseSettings):
     mongo_settings: MongoSettings = MongoSettings()  # type: ignore[call-arg]
     redis_settings: RedisSettings = RedisSettings()  # type: ignore[call-arg]
     token_settings: TokenSettings = TokenSettings()  # type: ignore[call-arg]
     logging_settings: LoggingSettings = LoggingSettings()
+    kafka_settings: KafkaSettings = KafkaSettings()  # type: ignore[call-arg]

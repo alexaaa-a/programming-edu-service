@@ -52,6 +52,7 @@ async def start_project(
 @router.get(
     "/project/templates",
     status_code=status.HTTP_200_OK,
+    response_model=ProjectTemplate,
     description="Получение всех шаблонов проектов, подходящих пользователю",
 )
 async def get_project_templates(

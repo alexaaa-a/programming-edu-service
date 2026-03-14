@@ -74,7 +74,8 @@ class ProjectDB(ProjectDBInterface):
             self.logger.exception("Failed to create template")
             return False
 
-    def _doc_to_template(self, doc: Any) -> ProjectTemplateDTO:
+    @staticmethod
+    def _doc_to_template(doc: Any) -> ProjectTemplateDTO:
         d = dict(doc)
         d.pop("_id", None)
         sprints = []

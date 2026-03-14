@@ -1,6 +1,7 @@
 import datetime
 
 from task_service.app.application.interfaces.db.task_db import TaskDBInterface
+from task_service.app.application.interfaces.kafka import TaskEventProducerInterface
 
 
 class UpdateTaskStatusUseCase:
@@ -11,8 +12,13 @@ class UpdateTaskStatusUseCase:
     }
     FINISH_STATUS = "done"
 
-    def __init__(self, task_db: TaskDBInterface):
+    def __init__(
+        self,
+        task_db: TaskDBInterface,
+        task_event_producer: TaskEventProducerInterface,
+    ) -> None:
         self.task_db = task_db
+        self.task_event_producer = task_event_producer
 
     async def __call__(self, user_id: int, task_id: int, new_status: str) -> bool | None:
         task = await self.task_db.get_task_by_id(task_id, user_id)
@@ -35,4 +41,10 @@ class UpdateTaskStatusUseCase:
             new_status=new_status,
             completed_at=completed_at,
         )
+        if update:
+            await self.task_event_producer.produce_task_status_updated(
+                task_id=task_id,
+                user_id=user_id,
+                status=new_status,
+            )
         return update

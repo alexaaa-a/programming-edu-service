@@ -19,6 +19,7 @@ router = APIRouter(route_class=DishkaRoute)
 @router.get(
     "/sprint/current",
     status_code=status.HTTP_200_OK,
+    response_model=Sprint,
     description="Получение текущего спринта пользователя",
 )
 async def get_current_sprint(

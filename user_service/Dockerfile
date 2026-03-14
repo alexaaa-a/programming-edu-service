@@ -6,5 +6,3 @@ COPY . ./user_service
 RUN pip install --no-cache-dir -r user_service/requirements.txt
 
 ENV PYTHONPATH=/app
-
-CMD ["uvicorn", "user_service.app.setup.app:app", "--host", "0.0.0.0", "--port", "8000"]

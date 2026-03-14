@@ -35,6 +35,7 @@ def _task_to_response(t) -> TaskResponse:
 @router.get(
     "/tasks/board",
     status_code=status.HTTP_200_OK,
+    response_model=BoardResponse,
     description="Получение доски задач текущего спринта",
 )
 async def get_board(

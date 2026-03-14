@@ -11,6 +11,7 @@ from task_service.app.application.interfaces.db.sprint_db import SprintDBInterfa
 from task_service.app.application.interfaces.db.project_db import (
     ProjectDBInterface,
 )
+from task_service.app.application.interfaces.kafka import TaskEventProducerInterface
 
 
 class CompleteSprintUseCase:
@@ -26,11 +27,13 @@ class CompleteSprintUseCase:
             sprint_db: SprintDBInterface,
             user_project_db: UserProjectDBInterface,
             project_db: ProjectDBInterface,
+            task_event_producer: TaskEventProducerInterface,
     ) -> None:
         self.task_db = task_db
         self.sprint_db = sprint_db
         self.user_project_db = user_project_db
         self.project_db = project_db
+        self.task_event_producer = task_event_producer
 
     async def __call__(self, user_id: int) -> bool | str | None:
         active_project = await self.user_project_db.get_active_user_project(user_id)
@@ -109,6 +112,11 @@ class CompleteSprintUseCase:
             task_created = await self.task_db.create_task(new_task)
             if not task_created:
                 return None
+            await self.task_event_producer.produce_task_created(
+                task_id=new_task.task_id,
+                user_id=user_id,
+                status=new_task.status,
+            )
 
         new_order = user_project.current_sprint_order + 1
         order_updated = await self.user_project_db.update_current_sprint_order(

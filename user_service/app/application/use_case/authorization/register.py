@@ -1,11 +1,11 @@
 import uuid
 
+from user_service.app.application.dto import AuthResultDTO, UserDTO, UserRegisterDTO
+from user_service.app.application.interfaces.db.session_repo import SessionRepositoryInterface
 from user_service.app.application.interfaces.db.user_repo import UserRepositoryInterface
-from user_service.app.application.dto import UserRegisterDTO, UserDTO
-from user_service.app.application.dto import AuthResultDTO
+from user_service.app.application.interfaces.kafka import UserEventProducerInterface
 from user_service.app.application.interfaces.register.password_service import PasswordServiceInterface
 from user_service.app.application.interfaces.register.token_service import TokenServiceInterface
-from user_service.app.application.interfaces.db.session_repo import SessionRepositoryInterface
 
 
 class RegisterUseCase:
@@ -15,11 +15,13 @@ class RegisterUseCase:
             password_service: PasswordServiceInterface,
             token_service: TokenServiceInterface,
             session_repo: SessionRepositoryInterface,
+            user_event_producer: UserEventProducerInterface,
     ) -> None:
         self.user_repo = user_repo
         self.password_service = password_service
         self.token_service = token_service
         self.session_repo = session_repo
+        self.user_event_producer = user_event_producer
 
     async def __call__(self, user: UserRegisterDTO) -> AuthResultDTO:
         user_db = await self.user_repo.get_user_by_email(user.email)
@@ -50,6 +52,12 @@ class RegisterUseCase:
                 refresh_token=None,
                 is_email_exists=False,
             )
+
+        await self.user_event_producer.produce_user_registered(
+            user_id=user_id,
+            direction=user.direction,
+            level=user.level,
+        )
 
         access = self.token_service.create_token(user_id, "access")
         refresh = self.token_service.create_token(user_id, "refresh")
