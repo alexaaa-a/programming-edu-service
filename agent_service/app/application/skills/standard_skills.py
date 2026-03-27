@@ -1,0 +1,451 @@
+from __future__ import annotations
+
+import json
+from dataclasses import asdict, dataclass, is_dataclass
+from typing import Any
+
+
+_MENTOR_ANALYSIS_JSON_MAX_CHARS = 14_000
+
+
+def _to_jsonable_for_mentor(value: Any) -> Any:
+    if is_dataclass(value) and not isinstance(value, type):
+        return asdict(value)
+    if isinstance(value, dict):
+        return {str(k): _to_jsonable_for_mentor(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_to_jsonable_for_mentor(v) for v in value]
+    return value
+
+from agent_service.app.application.dto import Review
+from agent_service.app.application.dto.rag import RetrievedDocument
+from agent_service.app.application.interfaces import LLMInterface
+from agent_service.app.application.interfaces import MemoryInterface
+
+
+def _filter_docs_by_types(
+    docs: list[RetrievedDocument],
+    *,
+    allowed_types: set[str],
+) -> list[RetrievedDocument]:
+    filtered: list[RetrievedDocument] = []
+    for d in docs:
+        meta = d.metadata or {}
+        if str(meta.get("type", "")) in allowed_types:
+            filtered.append(d)
+    return filtered
+
+
+def _truncate_chars(text: str, *, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    if max_chars <= 0:
+        return ""
+    return text[:max_chars].rsplit(" ", 1)[0].strip()
+
+
+def _format_knowledge_docs(
+    docs: list[RetrievedDocument],
+    *,
+    max_docs: int,
+    max_total_chars: int,
+) -> str:
+    if not docs or max_docs <= 0 or max_total_chars <= 0:
+        return "(no relevant knowledge found)"
+
+    total = 0
+    formatted: list[str] = []
+    for i, item in enumerate(docs[:max_docs], start=1):
+        text = (item.text or "").strip()
+        if not text:
+            continue
+
+        meta = item.metadata or {}
+        doc_type = str(meta.get("type", "") or "")
+        source = str(meta.get("source", "") or "")
+        header = ""
+        if doc_type or source:
+            header = f" (type={doc_type}, source={source})"
+
+        remaining = max_total_chars - total
+        if remaining <= 0:
+            break
+
+        text = _truncate_chars(text, max_chars=min(len(text), remaining))
+        if not text:
+            continue
+
+        formatted.append(f"[KB Doc {i}]{header}\n{text}")
+        total += len(text)
+
+    return "\n\n".join(formatted) if formatted else "(no relevant knowledge found)"
+
+
+@dataclass(frozen=True, slots=True)
+class LLMGenerateSkill:
+    llm: LLMInterface
+
+    name: str = "llm_generate"
+    description: str = "Calls the configured LLM and returns raw text."
+
+    async def run(self, **kwargs: Any) -> str:
+        system_prompt = str(kwargs["system_prompt"])
+        user_prompt = str(kwargs["user_prompt"])
+        return await self.llm.generate(system_prompt, user_prompt)
+
+
+@dataclass(frozen=True, slots=True)
+class ParseReviewJSONSkill:
+    name: str = "parse_review_json"
+    description: str = "Parses LLM raw output into a Review JSON schema."
+
+    async def run(self, **kwargs: Any) -> Review:
+        raw = str(kwargs["raw"])
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip("`")
+            if cleaned.startswith("json"):
+                cleaned = cleaned.removeprefix("json").strip()
+
+        try:
+            data: dict[str, Any] = json.loads(cleaned)
+        except json.JSONDecodeError:
+            start = cleaned.find("{")
+            end = cleaned.rfind("}")
+            if start == -1 or end == -1 or end <= start:
+                raise
+            data = json.loads(cleaned[start : end + 1])
+
+        try:
+            score = int(data["score"])
+            feedback = str(data["feedback"])
+            suggestions = list(map(str, data.get("suggestions", [])))
+        except Exception as e:
+            raise ValueError(f"Invalid Review JSON payload: {e}") from e
+
+        return Review(score=score, feedback=feedback, suggestions=suggestions)
+
+
+@dataclass(frozen=True, slots=True)
+class BuildReviewerPromptsSkill:
+    name: str = "build_reviewer_prompts"
+    description: str = "Builds system/user prompts for the code reviewer agent."
+
+    async def run(self, **kwargs: Any) -> tuple[str, str]:
+        code = str(kwargs["code"])
+        task_description = str(kwargs["task_description"])
+
+        system_prompt = (
+            "You are a senior code reviewer.\n"
+            "Analyze the provided code with respect to the task description.\n"
+            "Return ONLY a single valid JSON object with EXACT schema:\n"
+            "{\n"
+            '  "score": <int 1..10>,\n'
+            '  "feedback": <string>,\n'
+            '  "suggestions": <array of string>\n'
+            "}\n"
+            "Hard constraints:\n"
+            "- Output must be JSON only (no markdown, no code fences, no extra text).\n"
+            "- score is an integer from 1 to 10.\n"
+            '- feedback must be <= 600 characters.\n'
+            "- suggestions must be an array of 0..8 actionable items (each <= 200 characters).\n"
+            "- If the answer cannot be produced reliably, set score=1, feedback to a short error message, and suggestions=[]\n"
+        )
+        user_prompt = (
+            f"Task description:\n{task_description}\n\n"
+            f"Code:\n{code}\n"
+        )
+        return system_prompt, user_prompt
+
+
+@dataclass(frozen=True, slots=True)
+class AnalyzeCodeQualitySkill:
+    memory: MemoryInterface
+
+    name: str = "analyze_code_quality"
+    description: str = "Builds reviewer prompts using RAG best-practice docs."
+
+    retrieval_k: int = 10
+    prompt_max_docs: int = 3
+    prompt_max_total_chars: int = 5500
+
+    allowed_types: tuple[str, ...] = ("best_practice",)
+
+    async def run(self, **kwargs: Any) -> tuple[str, str]:
+        code = str(kwargs["code"])
+        task_description = str(kwargs["task_description"])
+
+        knowledge_docs = await self.memory.retrieve(
+            query=task_description,
+            k=self.retrieval_k,
+            types=set(self.allowed_types),
+        )
+
+        docs_text = _format_knowledge_docs(
+            knowledge_docs,
+            max_docs=self.prompt_max_docs,
+            max_total_chars=self.prompt_max_total_chars,
+        )
+
+        system_prompt = (
+            "Ты — senior code reviewer.\n"
+            "Оцени код относительно задачи.\n"
+            "Используй предоставленные знания из базы знаний (KB) как опору: не выдумывай.\n"
+            "Верни ONLY один valid JSON объект со СТРОГОЙ схемой:\n"
+            "{\n"
+            '  "score": <int 1..10>,\n'
+            '  "feedback": <string>,\n'
+            '  "suggestions": <array of string>\n'
+            "}\n"
+            "Жёсткие ограничения:\n"
+            "- В ответе только JSON (без markdown, без code fences, без доп. текста).\n"
+            "- score — целое число от 1 до 10.\n"
+            "- feedback <= 600 символов.\n"
+            "- suggestions: 0..8 пунктов, каждый <= 200 символов.\n"
+            "- Если не можешь сформировать ответ надёжно, верни score=1, feedback с краткой причиной и suggestions=[]\n"
+        )
+
+        user_prompt = (
+            f"Task description:\n{task_description}\n\n"
+            f"Knowledge base (best practices):\n{docs_text}\n\n"
+            f"Code:\n{code}\n"
+        )
+        return system_prompt, user_prompt
+
+
+@dataclass(frozen=True, slots=True)
+class BuildBugPromptsSkill:
+    name: str = "build_bug_prompts"
+    description: str = "Builds system/user prompts for the bug-finding agent."
+
+    async def run(self, **kwargs: Any) -> tuple[str, str]:
+        code = str(kwargs["code"])
+
+        system_prompt = (
+            "You are a QA Engineer focused on finding bugs and edge cases.\n"
+            "Analyze the provided code.\n"
+            "Return ONLY a single valid JSON object with EXACT schema:\n"
+            "{\n"
+            '  "score": <int 1..10>,\n'
+            '  "feedback": <string>,\n'
+            '  "suggestions": <array of string>\n'
+            "}\n"
+            "Hard constraints:\n"
+            "- Output must be JSON only (no markdown, no code fences, no extra text).\n"
+            "- score is an integer from 1 to 10 (10 means very safe).\n"
+            "- feedback must be <= 600 characters.\n"
+            "- suggestions must be an array of 0..8 actionable items (each <= 200 characters).\n"
+            "- If you cannot be confident, set score=1, feedback to a short error message, suggestions=[]\n"
+        )
+        user_prompt = f"Code:\n{code}\n"
+        return system_prompt, user_prompt
+
+
+@dataclass(frozen=True, slots=True)
+class DetectBugsSkill:
+    memory: MemoryInterface
+
+    name: str = "detect_bugs"
+    description: str = "Builds bug-finding prompts using RAG bugs docs."
+
+    retrieval_k: int = 12
+    prompt_max_docs: int = 4
+    prompt_max_total_chars: int = 6000
+
+    allowed_types: tuple[str, ...] = ("bugs",)
+
+    async def run(self, **kwargs: Any) -> tuple[str, str]:
+        code = str(kwargs["code"])
+
+        retrieval_query = f"bugs\n{code[:4000]}"
+        knowledge_docs = await self.memory.retrieve(
+            query=retrieval_query,
+            k=self.retrieval_k,
+            types=set(self.allowed_types),
+        )
+
+        docs_text = _format_knowledge_docs(
+            knowledge_docs,
+            max_docs=self.prompt_max_docs,
+            max_total_chars=self.prompt_max_total_chars,
+        )
+
+        system_prompt = (
+            "Ты — QA Engineer, специализируешься на поиске багов и edge cases.\n"
+            "Используй предоставленные знания из базы знаний (KB) как опору: не выдумывай.\n"
+            "Верни ONLY один valid JSON объект со СТРОГОЙ схемой:\n"
+            "{\n"
+            '  "score": <int 1..10>,\n'
+            '  "feedback": <string>,\n'
+            '  "suggestions": <array of string>\n'
+            "}\n"
+            "Жёсткие ограничения:\n"
+            "- В ответе только JSON (без markdown, без code fences, без доп. текста).\n"
+            "- score — целое число от 1 до 10.\n"
+            "- feedback <= 600 символов.\n"
+            "- suggestions: 0..8 пунктов, каждый <= 200 символов.\n"
+            "- Если не можешь сформировать ответ надёжно, верни score=1, feedback с краткой причиной и suggestions=[]\n"
+        )
+
+        user_prompt = (
+            f"Knowledge base (bugs & edge cases):\n{docs_text}\n\n"
+            f"Code:\n{code}\n"
+        )
+        return system_prompt, user_prompt
+
+
+@dataclass(frozen=True, slots=True)
+class BuildMentorPromptsSkill:
+    name: str = "build_mentor_prompts"
+    description: str = "Builds prompts for the mentor agent."
+
+    async def run(self, **kwargs: Any) -> tuple[str, str]:
+        code = str(kwargs["code"])
+        results = kwargs["results"]
+
+        if isinstance(results, str):
+            results_text = results
+        else:
+            try:
+                payload = _to_jsonable_for_mentor(results)
+                results_text = json.dumps(payload, ensure_ascii=False, indent=2)
+            except Exception:
+                results_text = str(results)
+
+        if len(results_text) > _MENTOR_ANALYSIS_JSON_MAX_CHARS:
+            head = _MENTOR_ANALYSIS_JSON_MAX_CHARS // 2
+            tail = _MENTOR_ANALYSIS_JSON_MAX_CHARS - head
+            omitted = len(results_text) - head - tail
+            results_text = (
+                results_text[:head]
+                + f"\n\n... [обрезано ~{omitted} символов: слишком большой ответ reviewer/bug для одного запроса] ...\n\n"
+                + results_text[-tail:]
+            )
+
+        system_prompt = (
+            "Ты — senior software mentor.\n"
+            "Получил код и результаты анализа.\n"
+            "Сформируй единый итоговый фидбек на русском языке.\n"
+            "Требования к формату:\n"
+            "- Ответ: plain text (без markdown code fences).\n"
+            "- Не упоминай внутренних ролей агентов.\n"
+            "- Будь максимально actionable: что менять, почему важно, как валидировать.\n"
+            "- Если данных недостаточно — укажи краткие допущения и предложи, что уточнить.\n"
+        )
+        user_prompt = (
+            f"Code:\n{code}\n\n"
+            f"Other agents results:\n{results_text}\n"
+        )
+        return system_prompt, user_prompt
+
+
+@dataclass(frozen=True, slots=True)
+class RAGRetrieveSkill:
+    memory: MemoryInterface
+
+    name: str = "rag_retrieve"
+    description: str = "Retrieves relevant documents from memory (RAG)."
+
+    async def run(self, **kwargs: Any) -> list[RetrievedDocument]:
+        query = str(kwargs["query"])
+        k = int(kwargs.get("k", 5))
+        types = kwargs.get("types")
+        if types is not None and not isinstance(types, set):
+            types = set(map(str, types))
+        return await self.memory.retrieve(query=query, k=k, types=types)
+
+
+@dataclass(frozen=True, slots=True)
+class BuildRetrievalQuerySkill:
+    name: str = "build_retrieval_query"
+    description: str = "Builds a search query for RAG based on message+context."
+
+    async def run(self, **kwargs: Any) -> str:
+        message = str(kwargs["message"])
+        context = kwargs["context"]
+
+        context_text = self._to_text(context).strip()
+        if context_text:
+            return f"{message}\n\nContext:\n{context_text}"
+        return message
+
+    def _to_text(self, value: Any) -> str:
+        if isinstance(value, str):
+            return value
+        try:
+            return json.dumps(value, ensure_ascii=False, indent=2)
+        except Exception:
+            return str(value)
+
+
+@dataclass(frozen=True, slots=True)
+class BuildChatPromptsSkill:
+    name: str = "build_chat_prompts"
+    description: str = "Builds prompts for the chat team agent."
+
+    async def run(self, **kwargs: Any) -> tuple[str, str]:
+        message = str(kwargs["message"])
+        chat_history = kwargs["chat_history"]
+        context = kwargs["context"]
+        knowledge_docs = kwargs["knowledge_docs"]
+
+        history_text = self._to_text(chat_history)
+        context_text = self._to_text(context)
+        docs_text = self._format_docs(knowledge_docs)
+
+        system_prompt = (
+            "Ты — единый экспертный собеседник.\n"
+            "Формируй один финальный ответ на русском языке.\n"
+            "Внутренние промежуточные размышления и стенограмму НЕ показывай.\n\n"
+            "Требования к ответу:\n"
+            "1) Дай ОДИН ответ без заголовков ролей и без упоминания того, что это командное обсуждение.\n"
+            "2) Пиши по делу и профессионально; без воды.\n"
+            "3) Используй message и chat_history.\n"
+            "4) Используй knowledge context (KB) только если он помогает и не противоречит.\n"
+            "5) Если данных недостаточно — укажи краткие допущения и задай 1–3 уточняющих вопроса.\n"
+            "6) Объём: ориентируйся на ~200–450 слов.\n"
+        )
+
+        user_prompt = (
+            f"Knowledge context (user/context data):\n{context_text}\n\n"
+            f"RAG knowledge documents (excerpts):\n{docs_text}\n\n"
+            f"Chat history:\n{history_text}\n\n"
+            f"New message:\n{message}\n"
+        )
+        return system_prompt, user_prompt
+
+    def _to_text(self, value: Any) -> str:
+        if isinstance(value, str):
+            return value
+        try:
+            return json.dumps(value, ensure_ascii=False, indent=2)
+        except Exception:
+            return str(value)
+
+    def _format_docs(self, docs: list[RetrievedDocument]) -> str:
+        if not docs:
+            return "(no relevant documents found)"
+        formatted: list[str] = []
+        for i, item in enumerate(docs, start=1):
+            meta = item.metadata or {}
+            doc_type = meta.get("type", "")
+            source = meta.get("source", "")
+            meta_suffix = ""
+            if doc_type or source:
+                meta_suffix = f" (type={doc_type}, source={source})"
+            formatted.append(f"[Doc {i}]{meta_suffix}\n{item.text}")
+        return "\n\n".join(formatted)
+
+
+__all__ = [
+    "LLMGenerateSkill",
+    "ParseReviewJSONSkill",
+    "BuildReviewerPromptsSkill",
+    "BuildBugPromptsSkill",
+    "AnalyzeCodeQualitySkill",
+    "DetectBugsSkill",
+    "BuildMentorPromptsSkill",
+    "RAGRetrieveSkill",
+    "BuildRetrievalQuerySkill",
+    "BuildChatPromptsSkill",
+]

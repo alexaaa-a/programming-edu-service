@@ -13,6 +13,10 @@ class SubmissionEventProducerInterface(Protocol):
         raise NotImplementedError
 
     @abstractmethod
+    async def health(self) -> bool:
+        raise NotImplementedError
+
+    @abstractmethod
     async def produce_submission_created(
         self,
         *,
@@ -20,5 +24,6 @@ class SubmissionEventProducerInterface(Protocol):
         task_id: int,
         user_id: int,
         code: str,
+        task_description: str,
     ) -> None:
         raise NotImplementedError

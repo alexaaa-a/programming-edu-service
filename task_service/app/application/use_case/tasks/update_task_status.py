@@ -46,5 +46,6 @@ class UpdateTaskStatusUseCase:
                 task_id=task_id,
                 user_id=user_id,
                 status=new_status,
+                task_description=task.description,
             )
         return update

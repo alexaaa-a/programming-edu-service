@@ -13,12 +13,17 @@ class TaskEventProducerInterface(Protocol):
         raise NotImplementedError
 
     @abstractmethod
+    async def health(self) -> bool:
+        raise NotImplementedError
+
+    @abstractmethod
     async def produce_task_created(
         self,
         *,
         task_id: int,
         user_id: int,
         status: str,
+        task_description: str,
     ) -> None:
         raise NotImplementedError
 
@@ -29,5 +34,6 @@ class TaskEventProducerInterface(Protocol):
         task_id: int,
         user_id: int,
         status: str,
+        task_description: str,
     ) -> None:
         raise NotImplementedError

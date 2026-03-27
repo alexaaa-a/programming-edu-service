@@ -1,16 +1,24 @@
 from task_service.app.application.interfaces.db.mongodb import MongoDBInterface
 from task_service.app.application.interfaces.db.cache import CacheInterface
+from task_service.app.application.interfaces.kafka import TaskEventProducerInterface
 
 
 class HealthCheckUseCase:
-    def __init__(self, mongo_db: MongoDBInterface, cache: CacheInterface) -> None:
+    def __init__(
+        self,
+        mongo_db: MongoDBInterface,
+        cache: CacheInterface,
+        kafka: TaskEventProducerInterface,
+    ) -> None:
         self.mongo_db = mongo_db
         self.cache = cache
+        self.kafka = kafka
 
     async def __call__(self) -> None:
         mongo_ok = await self.mongo_db.health()
         cache_ok = await self.cache.health()
+        kafka_ok = await self.kafka.health()
 
-        all_ok = mongo_ok and cache_ok
+        all_ok = mongo_ok and cache_ok and kafka_ok
         if not all_ok:
             raise RuntimeError("Not all databases are ready")

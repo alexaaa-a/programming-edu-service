@@ -17,6 +17,36 @@ from submission_service.app.config import Settings
 KAFKA_CONSUMER_START_DELAY_SEC = 60
 
 
+def _coerce_submission_id(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_score(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(round(float(value)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_suggestions(raw: Any) -> list[str]:
+    if not raw:
+        return []
+    if not isinstance(raw, list):
+        return [str(raw)]
+    out: list[str] = []
+    for item in raw:
+        if isinstance(item, str):
+            out.append(item)
+        else:
+            out.append(str(item))
+    return out
+
+
 def _parse_review_message(value: bytes) -> dict[str, Any] | None:
     try:
         return json.loads(value.decode("utf-8"))
@@ -60,20 +90,20 @@ async def run_review_completed_consumer(
             if not raw:
                 logger.warning("Invalid message in %s: %s", topic, msg.value)
                 continue
-            submission_id = raw.get("submission_id")
-            if submission_id is None:
-                logger.warning("Missing submission_id in message")
+            sid = _coerce_submission_id(raw.get("submission_id"))
+            if sid is None:
+                logger.warning("Invalid submission_id in message: %r", raw.get("submission_id"))
                 continue
-            score = raw.get("score")
-            feedback = raw.get("feedback", "")
-            suggestions = raw.get("suggestions") or []
+            score = _coerce_score(raw.get("score"))
+            feedback = str(raw.get("feedback", "") or "")
+            suggestions = _normalize_suggestions(raw.get("suggestions"))
             if score is None:
                 review_dto = None
             else:
                 review_dto = ReviewDTO(score=score, feedback=feedback, suggestions=suggestions)
             async with container() as request_container:
                 uc = await request_container.get(ProcessReviewResultUseCase)
-                await uc(submission_id, review_dto)
+                await uc(sid, review_dto)
     finally:
         await consumer.stop()
         logger.info("Kafka consumer stopped for %s", topic)
@@ -127,10 +157,15 @@ async def run_task_events_consumer(
             task_id = raw.get("task_id")
             user_id = raw.get("user_id")
             status = raw.get("status")
+            task_description = raw.get("task_description")
             if task_id is None or user_id is None or status is None:
                 continue
-            await task_cache.upsert_task(int(task_id), int(user_id), str(status))
-            logger.debug("Task cache updated task_id=%s user_id=%s status=%s", task_id, user_id, status)
+            await task_cache.upsert_task(
+                int(task_id),
+                int(user_id),
+                str(status),
+                task_description=str(task_description) if task_description is not None else None,
+            )
     finally:
         await consumer.stop()
         logger.info("Kafka consumer stopped for %s", topics)

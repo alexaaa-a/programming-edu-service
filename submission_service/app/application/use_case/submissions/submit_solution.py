@@ -28,6 +28,9 @@ class SubmitSubmissionUseCase:
         status = await self.task_cache.get_status(task_id, user_id)
         if status is None or status not in self.ALLOWED_STATUSES_FOR_SUBMISSION:
             return None
+
+        task_description = await self.task_cache.get_task_description(task_id, user_id)
+        task_description = task_description or ""
         submission = SubmissionDTO(
             submission_id=self._generate_submission_id(),
             user_id=user_id,
@@ -46,6 +49,7 @@ class SubmitSubmissionUseCase:
                 task_id=task_id,
                 user_id=user_id,
                 code=code,
+                task_description=task_description,
             )
             return submission.submission_id
 

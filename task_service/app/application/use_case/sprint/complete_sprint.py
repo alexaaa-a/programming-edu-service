@@ -116,6 +116,7 @@ class CompleteSprintUseCase:
                 task_id=new_task.task_id,
                 user_id=user_id,
                 status=new_task.status,
+                task_description=new_task.description,
             )
 
         new_order = user_project.current_sprint_order + 1

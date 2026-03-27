@@ -66,10 +66,11 @@ class SubmissionsDB(SubmissionsDBInterface):
             status: str,
     ) -> bool:
         try:
+            review_doc = asdict(review) if review is not None else None
             await self.db.update_one(
                 {"submission_id": submission_id},
                 {"$set": {
-                    "review": review,
+                    "review": review_doc,
                     "status": status,
                     "reviewed_at": datetime.datetime.now()
                 }}

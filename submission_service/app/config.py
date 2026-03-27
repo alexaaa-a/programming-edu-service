@@ -11,7 +11,7 @@ class MongoSettings(BaseSettings):
     ssl: bool = False
     server_selection_timeout_ms: int = 5000
 
-    model_config = SettingsConfigDict(env_prefix="MONGO_")
+    model_config = SettingsConfigDict(env_prefix="SUBMISSION_SERVICE_MONGO_")
 
     @property
     def connection_string(self) -> MultiHostUrl:
@@ -28,7 +28,7 @@ class TokenSettings(BaseSettings):
     secret_key: str
     algorithm: str
 
-    model_config = SettingsConfigDict(env_prefix="TOKEN_")
+    model_config = SettingsConfigDict(env_prefix="SUBMISSION_SERVICE_TOKEN_")
 
 
 class LoggingSettings(BaseSettings):
@@ -42,7 +42,7 @@ class KafkaSettings(BaseSettings):
     topic_task_created: str
     topic_task_status_updated: str
 
-    model_config = SettingsConfigDict(env_prefix="KAFKA_")
+    model_config = SettingsConfigDict(env_prefix="SUBMISSION_SERVICE_KAFKA_")
 
 
 class Settings(BaseSettings):

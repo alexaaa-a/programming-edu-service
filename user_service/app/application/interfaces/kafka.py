@@ -13,6 +13,10 @@ class UserEventProducerInterface(Protocol):
         raise NotImplementedError
 
     @abstractmethod
+    async def health(self) -> bool:
+        raise NotImplementedError
+
+    @abstractmethod
     async def produce_user_registered(
         self,
         *,

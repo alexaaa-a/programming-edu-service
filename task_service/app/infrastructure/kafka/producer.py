@@ -25,6 +25,22 @@ class TaskEventProducer:
             await self._producer.stop()
             self._logger.info("Kafka task event producer stopped")
 
+    async def health(self) -> bool:
+        probe = AIOKafkaProducer(
+            bootstrap_servers=self._settings.kafka_settings.bootstrap_servers.split(","),
+            value_serializer=lambda v: v,
+        )
+        try:
+            await probe.start()
+            return True
+        except Exception:
+            return False
+        finally:
+            try:
+                await probe.stop()
+            except Exception:
+                pass
+
     async def _send(self, topic: str, payload: dict) -> None:
         if not self._producer:
             self._logger.warning("Kafka producer not started, skipping event")
@@ -40,10 +56,16 @@ class TaskEventProducer:
         task_id: int,
         user_id: int,
         status: str,
+        task_description: str,
     ) -> None:
         await self._send(
             self._settings.kafka_settings.topic_task_created,
-            {"task_id": task_id, "user_id": user_id, "status": status},
+            {
+                "task_id": task_id,
+                "user_id": user_id,
+                "status": status,
+                "task_description": task_description,
+            },
         )
 
     async def produce_task_status_updated(
@@ -52,8 +74,14 @@ class TaskEventProducer:
         task_id: int,
         user_id: int,
         status: str,
+        task_description: str,
     ) -> None:
         await self._send(
             self._settings.kafka_settings.topic_task_status_updated,
-            {"task_id": task_id, "user_id": user_id, "status": status},
+            {
+                "task_id": task_id,
+                "user_id": user_id,
+                "status": status,
+                "task_description": task_description,
+            },
         )

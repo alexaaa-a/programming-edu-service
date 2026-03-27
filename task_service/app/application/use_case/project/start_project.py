@@ -86,6 +86,7 @@ class StartProjectUseCase:
                     task_id=new_task.task_id,
                     user_id=user_id,
                     status=new_task.status,
+                    task_description=new_task.description,
                 )
 
         return creation_project

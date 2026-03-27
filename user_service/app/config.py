@@ -11,7 +11,7 @@ class MongoSettings(BaseSettings):
     ssl: bool = False
     server_selection_timeout_ms: int = 5000
 
-    model_config = SettingsConfigDict(env_prefix="MONGO_")
+    model_config = SettingsConfigDict(env_prefix="USER_SERVICE_MONGO_")
 
     @property
     def connection_string(self) -> MultiHostUrl:
@@ -29,7 +29,7 @@ class RedisSettings(BaseSettings):
     port: int
     db: int
 
-    model_config = SettingsConfigDict(env_prefix="REDIS_")
+    model_config = SettingsConfigDict(env_prefix="USER_SERVICE_REDIS_")
 
 
 class LoggingSettings(BaseSettings):
@@ -42,7 +42,7 @@ class RegisterSettings(BaseSettings):
     algorithm: str
     access_token_expire: int = 900
 
-    model_config = SettingsConfigDict(env_prefix="REGISTER_")
+    model_config = SettingsConfigDict(env_prefix="USER_SERVICE_REGISTER_")
 
 
 class KafkaSettings(BaseSettings):
@@ -50,7 +50,7 @@ class KafkaSettings(BaseSettings):
     topic_user_registered: str
     topic_user_profile_updated: str
 
-    model_config = SettingsConfigDict(env_prefix="KAFKA_")
+    model_config = SettingsConfigDict(env_prefix="USER_SERVICE_KAFKA_")
 
 
 class Settings(BaseSettings):

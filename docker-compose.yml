@@ -1,6 +1,7 @@
 services:
   kafka:
     image: apache/kafka:3.9.1
+    restart: unless-stopped
     ports:
       - "9092:9092"
       - "9094:9094"
@@ -24,6 +25,100 @@ services:
       retries: 6
       start_period: 45s
 
+  user_service:
+    build:
+      context: .
+      dockerfile: user_service/Dockerfile
+    command: uvicorn user_service.app.setup.app:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8001:8000"
+    networks:
+      - shared_network
+
+  task_service:
+    build:
+      context: .
+      dockerfile: task_service/Dockerfile
+    command: uvicorn task_service.app.setup.app:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8002:8000"
+    networks:
+      - shared_network
+
+  submission_service:
+    build:
+      context: .
+      dockerfile: submission_service/Dockerfile
+    command: uvicorn submission_service.app.setup.app:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8003:8000"
+    networks:
+      - shared_network
+
+  agent_service:
+    build:
+      context: .
+      dockerfile: agent_service/Dockerfile
+    command: uvicorn agent_service.app.setup.main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - shared_network
+    ports:
+      - "8004:8000"
+
+  api_gateway:
+    build:
+      context: .
+      dockerfile: api_gateway/Dockerfile
+    command: uvicorn api_gateway.app.setup.app:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - user_service
+      - task_service
+      - submission_service
+      - agent_service
+    ports:
+      - "8005:8000"
+    networks:
+      - shared_network
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    depends_on:
+      - agent_service
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - shared_network
+
 networks:
   shared_network:
-    external: true
+    driver: bridge

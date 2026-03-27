@@ -1,0 +1,169 @@
+{
+  "chat_tests": [
+    {
+      "user_message": "Объясни, как работает гибридная память в агенте: долгосрочная (RAG) и краткосрочная (chat history). Какие плюсы и минусы?",
+      "expected_keywords": [
+        "гибрид",
+        "долгосрочн",
+        "краткосрочн",
+        "память"
+      ]
+    },
+    {
+      "user_message": "Как улучшить RAG: чанки, метаданные и кэш retrieve. Что и почему делать на практике?",
+      "expected_keywords": [
+        "RAG",
+        "чанки",
+        "метадат",
+        "кэш",
+        "retrieve"
+      ]
+    },
+    {
+      "user_message": "Опиши Clean Architecture в контексте мультиагентной системы: где интерфейсы, где инфраструктура, как сделать DI?",
+      "expected_keywords": [
+        "Clean Architecture",
+        "интерфейс",
+        "инфраструктура",
+        "DI"
+      ]
+    },
+    {
+      "user_message": "Зачем нужен Redis для кэширования retrieve с TTL? Какие риски и как их учитывать?",
+      "expected_keywords": [
+        "Redis",
+        "TTL",
+        "кэш",
+        "retrieve"
+      ]
+    },
+    {
+      "user_message": "Как хранить chat history в MongoDB: session_id, timestamp и индексы. Что важно для производительности?",
+      "expected_keywords": [
+        "MongoDB",
+        "session_id",
+        "timestamp",
+        "индекс"
+      ]
+    },
+    {
+      "user_message": "Как оценивать качество ревью с метриками MAE, RMSE и Jaccard/F1 по ожиданиям? Дай краткий план.",
+      "expected_keywords": [
+        "MAE",
+        "RMSE",
+        "Jaccard",
+        "F1",
+        "метрик"
+      ]
+    }
+  ],
+  "review_tests": [
+    {
+      "task_description": "Проверь код на чистоту, стиль, типобезопасность и возможные улучшения. Оцени по шкале score от 1 до 10.",
+      "code": "from typing import Iterable\n\n\ndef summarize_words(words: Iterable[str], *, max_words: int = 20) -> str:\n    \"\"\"Return the first `max_words` meaningful words joined with spaces.\"\"\"\n\n    if max_words <= 0:\n        raise ValueError(\"max_words must be positive\")\n\n    cleaned: list[str] = []\n    for w in words:\n        w = w.strip()\n        if not w:\n            continue\n        cleaned.append(w.lower())\n        if len(cleaned) >= max_words:\n            break\n\n    return \" \".join(cleaned)\n",
+      "expected_keywords": [
+        "докстринг",
+        "аннотации типов",
+        "валидация",
+        "обработка исключений",
+        "читабельность"
+      ],
+      "expected_score_range": [8, 10]
+    },
+    {
+      "task_description": "Проверь код на чистоту, стиль, корректность и лучшие практики. Оцени по шкале score от 1 до 10.",
+      "code": "from dataclasses import dataclass\n\n\n@dataclass(frozen=True, slots=True)\nclass Money:\n    amount: int\n    currency: str = \"RUB\"\n\n\ndef format_money(m: Money) -> str:\n    \"\"\"Format Money as '<amount> <currency>' with basic validation.\"\"\"\n\n    currency = m.currency.strip()\n    if not currency:\n        raise ValueError(\"currency must not be empty\")\n\n    return f\"{m.amount} {currency}\"\n",
+      "expected_keywords": [
+        "dataclass",
+        "иммутабельность",
+        "валидация",
+        "читабельность"
+      ],
+      "expected_score_range": [7, 10]
+    },
+    {
+      "task_description": "Проверь код на качество и соответствие стилю. Оцени по шкале score от 1 до 10.",
+      "code": "import re\nfrom typing import Final\n\n\n_EMAIL_RE: Final[re.Pattern[str]] = re.compile(\n    r\"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\\\.[A-Za-z]{2,}$\",\n    re.IGNORECASE,\n)\n\n\ndef is_valid_email(email: str) -> bool:\n    \"\"\"Validate email with a lightweight regex.\"\"\"\n\n    if not email:\n        return False\n\n    return bool(_EMAIL_RE.fullmatch(email.strip()))\n",
+      "expected_keywords": [
+        "константы",
+        "валидация",
+        "PEP 8",
+        "читабельность"
+      ],
+      "expected_score_range": [8, 10]
+    },
+    {
+      "task_description": "Проверь код на чистоту, стиль и надёжность. Оцени по шкале score от 1 до 10.",
+      "code": "def process_items(items):\n    result = []\n    for item in items:\n        try:\n            if item['type'] == 'A':\n                result.append(item['value'] * 2)\n            else:\n                result.append(item['value'] * 3)\n        except:\n            pass\n    return result\n",
+      "expected_keywords": [
+        "нет аннотаций типов",
+        "bare except",
+        "магические числа",
+        "читабельность",
+        "обработка исключений"
+      ],
+      "expected_score_range": [1, 4]
+    },
+    {
+      "task_description": "Проверь код на чистоту, стиль, отсутствие дублирования и корректность обработки входных данных.",
+      "code": "def calc_tax(amount, rate=0.2):\n    return amount * rate\n\n\ndef calc_discount(amount, discount_rate=0.1):\n    return amount * discount_rate\n\n\ndef apply(amount):\n    tax = amount * 0.2\n    disc = amount * 0.1\n    return amount + tax - disc\n",
+      "expected_keywords": [
+        "магические числа",
+        "дублирование кода",
+        "валидация",
+        "именование"
+      ],
+      "expected_score_range": [2, 5]
+    },
+    {
+      "task_description": "Проверь код на стиль, корректность и отсутствие побочных эффектов. Оцени по шкале score от 1 до 10.",
+      "code": "def build_mapping(pairs, mapping={}):\n    for k, v in pairs:\n        mapping[k] = v\n    print(mapping)\n    return mapping\n",
+      "expected_keywords": [
+        "изменяемые аргументы по умолчанию",
+        "побочные эффекты",
+        "читабельность"
+      ],
+      "expected_score_range": [1, 3]
+    },
+    {
+      "task_description": "Проверь код на корректность, граничные условия и надёжность. Оцени по шкале score от 1 до 10.",
+      "code": "from typing import Sequence, TypeVar\n\nT = TypeVar('T')\n\n\ndef get_slice(items: Sequence[T], start: int, end: int) -> Sequence[T]:\n    \"\"\"Return a slice of items. (Bug: treats end as inclusive).\"\"\"\n\n    return items[start:end + 1]\n",
+      "expected_keywords": [
+        "граничные условия",
+        "off-by-one",
+        "корректность"
+      ],
+      "expected_score_range": [2, 6]
+    },
+    {
+      "task_description": "Проверь код на корректность логики и обработку ошибок. Оцени по шкале score от 1 до 10.",
+      "code": "def is_even(n):\n    \"\"\"Return True if n is even.\"\"\"\n\n    return n % 2 == 1\n",
+      "expected_keywords": [
+        "логическая ошибка",
+        "корректность",
+        "граничные условия"
+      ],
+      "expected_score_range": [1, 4]
+    },
+    {
+      "task_description": "Проверь код на корректность и валидацию входных данных. Оцени по шкале score от 1 до 10.",
+      "code": "from typing import Iterable\n\n\ndef pairwise_sum(a: Iterable[int], b: Iterable[int]) -> list[int]:\n    \"\"\"Sum pairwise elements. (Bug: silently drops extra items).\"\"\"\n\n    return [x + y for x, y in zip(a, b)]\n",
+      "expected_keywords": [
+        "валидация размеров",
+        "скрытая потеря данных",
+        "корректность"
+      ],
+      "expected_score_range": [2, 5]
+    },
+    {
+      "task_description": "Проверь код на обработку исключений и надёжность. Оцени по шкале score от 1 до 10.",
+      "code": "def parse_int(text: str) -> int:\n    \"\"\"Parse int from text. (Bug: converts errors to 0).\"\"\"\n\n    try:\n        return int(text)\n    except ValueError:\n        return 0\n",
+      "expected_keywords": [
+        "обработка исключений",
+        "скрытая ошибка",
+        "валидация"
+      ],
+      "expected_score_range": [1, 4]
+    }
+  ]
+}
