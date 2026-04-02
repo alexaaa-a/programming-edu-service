@@ -20,5 +20,10 @@ async def chat(
     body: ChatRequest,
     uc: FromDishka[ChatWithTeamUseCase],
 ) -> ChatResponse:
-    result = await uc(message=body.message, session_id=body.session_id)
+    result = await uc(
+        message=body.message,
+        session_id=body.session_id,
+        task_title=body.task_title,
+        task_description=body.task_description,
+    )
     return ChatResponse(session_id=result.session_id, answer=result.answer)

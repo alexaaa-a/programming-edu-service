@@ -1,7 +1,7 @@
 from dishka import Provider, Scope, provide
-from motor.motor_asyncio import AsyncIOMotorClient
 import redis.asyncio as redis
 
+from agent_service.app.config import Settings
 from agent_service.app.application.interfaces import HealthDependenciesChecker
 from agent_service.app.application.use_cases.well_known.health_check import HealthCheckUseCase
 from agent_service.app.infrastructure.health import DependenciesHealthChecker
@@ -11,12 +11,12 @@ class HealthDependenciesCheckerProvider(Provider):
     @provide(scope=Scope.APP, provides=HealthDependenciesChecker)
     def health_dependencies_checker(
         self,
-        mongo_client: AsyncIOMotorClient,
+        settings: Settings,
         redis_client: redis.Redis,
         kafka_bootstrap_servers: list[str],
     ) -> HealthDependenciesChecker:
         return DependenciesHealthChecker(
-            mongo_client=mongo_client,
+            chat_history_db_path=settings.tinydb_settings.chat_history_path,
             redis_client=redis_client,
             kafka_bootstrap_servers=kafka_bootstrap_servers,
         )

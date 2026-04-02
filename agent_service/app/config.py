@@ -1,27 +1,10 @@
-from pydantic_core import MultiHostUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class MongoSettings(BaseSettings):
-    host: str
-    port: int
-    username: str
-    password: str
-    name: str
-    ssl: bool = False
-    server_selection_timeout_ms: int = 5000
+class TinyDbSettings(BaseSettings):
+    chat_history_path: str = "/app/agent_service/data/chat_history.json"
 
-    model_config = SettingsConfigDict(env_prefix="AGENT_SERVICE_MONGO_")
-
-    @property
-    def connection_string(self) -> MultiHostUrl:
-        return MultiHostUrl.build(
-            scheme="mongodb",
-            username=self.username,
-            password=self.password,
-            host=self.host,
-            port=self.port,
-        )
+    model_config = SettingsConfigDict(env_prefix="AGENT_SERVICE_TINYDB_")
 
 
 class RedisSettings(BaseSettings):
@@ -67,7 +50,7 @@ class Settings(BaseSettings):
     logging_settings: LoggingSettings = LoggingSettings()  # type: ignore[call-arg]
     kafka_settings: KafkaSettings = KafkaSettings()  # type: ignore[call-arg]
     openrouter_settings: OpenRouterSettings = OpenRouterSettings()  # type: ignore[call-arg]
-    mongo_settings: MongoSettings = MongoSettings()  # type: ignore[call-arg]
+    tinydb_settings: TinyDbSettings = TinyDbSettings()
     chat_history_settings: ChatHistorySettings = ChatHistorySettings()  # type: ignore[call-arg]
     redis_settings: RedisSettings = RedisSettings()  # type: ignore[call-arg]
 

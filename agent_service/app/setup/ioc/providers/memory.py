@@ -1,8 +1,5 @@
-from collections.abc import AsyncIterable
-
 import aiohttp
 from dishka import Provider, Scope, provide
-from motor.motor_asyncio import AsyncIOMotorClient
 import logging
 
 from agent_service.app.application.interfaces import (
@@ -16,9 +13,9 @@ from agent_service.app.config import Settings
 from agent_service.app.infrastructure.llm import OpenRouterClient
 from agent_service.app.infrastructure.memory.rag_memory import RagMemory
 from agent_service.app.infrastructure.memory.cached_retrieve_memory import CachedMemory
-from agent_service.app.infrastructure.chat_history.mongo_chat_history_repository import (
-    MongoChatHistoryConfig,
-    MongoChatHistoryRepository,
+from agent_service.app.infrastructure.chat_history.tinydb_chat_history_repository import (
+    TinyDbChatHistoryConfig,
+    TinyDbChatHistoryRepository,
 )
 
 
@@ -62,34 +59,18 @@ class MemoryProvider(Provider):
             metrics_recorder=metrics_recorder,
         )
  
-class MongoClientProvider(Provider):
-    @provide(scope=Scope.APP)
-    async def mongo_client(
-        self,
-        settings: Settings,
-    ) -> AsyncIterable[AsyncIOMotorClient]:
-        client = AsyncIOMotorClient(
-            str(settings.mongo_settings.connection_string),
-            maxIdleTimeMS=settings.mongo_settings.server_selection_timeout_ms,
-        )
-        try:
-            yield client
-        finally:
-            client.close()
-
-
 class ChatHistoryRepositoryProvider(Provider):
     @provide(scope=Scope.APP, provides=ChatHistoryRepository)
     def chat_history_repository(
         self,
-        mongo_client: AsyncIOMotorClient,
         settings: Settings,
     ) -> ChatHistoryRepository:
-        return MongoChatHistoryRepository(
-            mongo_client=mongo_client,
-            db_name=settings.mongo_settings.name,
-            config=MongoChatHistoryConfig(max_messages=settings.chat_history_settings.max_messages),
+        return TinyDbChatHistoryRepository(
+            db_path=settings.tinydb_settings.chat_history_path,
+            config=TinyDbChatHistoryConfig(
+                max_messages=settings.chat_history_settings.max_messages,
+            ),
         )
 
 
-MemoryProviders = [LLMProvider(), MemoryProvider(), MongoClientProvider(), ChatHistoryRepositoryProvider()]
+MemoryProviders = [LLMProvider(), MemoryProvider(), ChatHistoryRepositoryProvider()]

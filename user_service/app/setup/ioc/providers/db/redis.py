@@ -3,8 +3,12 @@ from collections.abc import AsyncIterable
 import redis.asyncio as redis
 from dishka import provide, Provider, Scope
 
+from user_service.app.application.interfaces.db.admin_cache_repo import (
+    AdminCacheRepositoryInterface,
+)
 from user_service.app.application.interfaces.db.session_repo import SessionRepositoryInterface
 from user_service.app.application.interfaces.db.cache import CacheInterface
+from user_service.app.infrastructure.redis.admin_cache_repo import AdminCacheRepository
 from user_service.app.infrastructure.redis.cache import RedisCache
 from user_service.app.infrastructure.redis.session_repo import RedisSessionRepository
 from user_service.app.config import Settings
@@ -30,3 +34,4 @@ class RedisProvider(Provider):
 class RedisCacheProvider(Provider):
     cache = provide(RedisCache, provides=CacheInterface, scope=Scope.APP)
     session_db = provide(RedisSessionRepository, provides=SessionRepositoryInterface, scope=Scope.APP)
+    admin_cache_db = provide(AdminCacheRepository, provides=AdminCacheRepositoryInterface, scope=Scope.APP)

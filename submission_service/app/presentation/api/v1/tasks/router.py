@@ -10,6 +10,16 @@ from submission_service.app.presentation.api.v1.tasks.schema import Submission, 
 router = APIRouter(route_class=DishkaRoute)
 
 
+def _review_or_none(review) -> Review | None:
+    if review is None:
+        return None
+    return Review(
+        score=review.score,
+        feedback=review.feedback,
+        suggestions=review.suggestions,
+    )
+
+
 @router.get(
     "/tasks/{task_id}/submissions",
     status_code=status.HTTP_200_OK,
@@ -40,11 +50,7 @@ async def get_task_submissions(
                 task_id=task_id,
                 code=submission.code,
                 status=submission.status,
-                review=Review(
-                    score=submission.review.score,
-                    feedback=submission.review.feedback,
-                    suggestions=submission.review.suggestions,
-                ),
+                review=_review_or_none(submission.review),
                 created_at=submission.created_at,
                 reviewed_at=submission.reviewed_at,
             )

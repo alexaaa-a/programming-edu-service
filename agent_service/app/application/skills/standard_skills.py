@@ -188,20 +188,26 @@ class AnalyzeCodeQualitySkill:
         )
 
         system_prompt = (
-            "Ты — senior code reviewer.\n"
-            "Оцени код относительно задачи.\n"
-            "Используй предоставленные знания из базы знаний (KB) как опору: не выдумывай.\n"
-            "Верни ONLY один valid JSON объект со СТРОГОЙ схемой:\n"
+            "Ты — senior code reviewer. Оцени код относительно задачи.\n"
+            "Используй знания из базы знаний (KB) как опору: не выдумывай.\n"
+            "Язык ответа в поле feedback: русский.\n"
+            "Верни ТОЛЬКО один валидный JSON объект со СТРОГОЙ схемой:\n"
             "{\n"
             '  "score": <int 1..10>,\n'
             '  "feedback": <string>,\n'
             '  "suggestions": <array of string>\n'
             "}\n"
+            "Правила для score (более объективно):\n"
+            "- 10: требования выполнены полностью, есть только мелкие косметические замечания.\n"
+            "- 8: есть небольшие проблемы, но основная логика/работа выполнены.\n"
+            "- 6: заметные недочёты или неполная реализация ключевой части.\n"
+            "- 4: существенные ошибки/несоответствия задаче.\n"
+            "- 1: невозможно надёжно оценить или решение явно неверное/не компилируется.\n"
             "Жёсткие ограничения:\n"
-            "- В ответе только JSON (без markdown, без code fences, без доп. текста).\n"
-            "- score — целое число от 1 до 10.\n"
-            "- feedback <= 600 символов.\n"
-            "- suggestions: 0..8 пунктов, каждый <= 200 символов.\n"
+            "- Ответ целиком должен быть JSON (без markdown/code fences/доп. текста снаружи JSON).\n"
+            "- Поле feedback допускает Markdown для **жирного** (используй **...**), но избегай строк, начинающихся на '*' или '-' как маркеры.\n"
+            "- feedback <= 380 символов.\n"
+            "- suggestions: 0..6 пунктов, каждый <= 140 символов, без маркировки '*'-'-' в начале строки.\n"
             "- Если не можешь сформировать ответ надёжно, верни score=1, feedback с краткой причиной и suggestions=[]\n"
         )
 
@@ -271,8 +277,9 @@ class DetectBugsSkill:
         )
 
         system_prompt = (
-            "Ты — QA Engineer, специализируешься на поиске багов и edge cases.\n"
-            "Используй предоставленные знания из базы знаний (KB) как опору: не выдумывай.\n"
+            "Ты — QA Engineer. Ищешь баги и edge cases.\n"
+            "Используй знания из базы знаний (KB) как опору: не выдумывай.\n"
+            "Язык ответа в поле feedback: русский.\n"
             "Верни ONLY один valid JSON объект со СТРОГОЙ схемой:\n"
             "{\n"
             '  "score": <int 1..10>,\n'
@@ -280,10 +287,11 @@ class DetectBugsSkill:
             '  "suggestions": <array of string>\n'
             "}\n"
             "Жёсткие ограничения:\n"
-            "- В ответе только JSON (без markdown, без code fences, без доп. текста).\n"
-            "- score — целое число от 1 до 10.\n"
-            "- feedback <= 600 символов.\n"
-            "- suggestions: 0..8 пунктов, каждый <= 200 символов.\n"
+            "- Ответ целиком должен быть JSON (без markdown/code fences/доп. текста снаружи JSON).\n"
+            "- Поле feedback допускает Markdown для **жирного** (используй **...**), но избегай строк, начинающихся на '*' или '-' как маркеры.\n"
+            "- feedback <= 380 символов.\n"
+            "- score — целое число от 1 до 10 (10 = очень надёжно, без критических багов).\n"
+            "- suggestions: 0..6 пунктов, каждый <= 140 символов.\n"
             "- Если не можешь сформировать ответ надёжно, верни score=1, feedback с краткой причиной и suggestions=[]\n"
         )
 
@@ -326,11 +334,12 @@ class BuildMentorPromptsSkill:
             "Ты — senior software mentor.\n"
             "Получил код и результаты анализа.\n"
             "Сформируй единый итоговый фидбек на русском языке.\n"
-            "Требования к формату:\n"
-            "- Ответ: plain text (без markdown code fences).\n"
-            "- Не упоминай внутренних ролей агентов.\n"
-            "- Будь максимально actionable: что менять, почему важно, как валидировать.\n"
-            "- Если данных недостаточно — укажи краткие допущения и предложи, что уточнить.\n"
+            "Требования к формату для UI:\n"
+            "- Разрешён Markdown: используй **жирный** для ключевых тезисов.\n"
+            "- НЕ используй маркеры списка в виде строк, начинающихся на '*' или '-'.\n"
+            "- Держи текст коротким: 3-5 предложений, <= 650 символов.\n"
+            "- Не упоминай внутренние роли агентов.\n"
+            "- Будь actionable: что менять, почему важно, как проверить.\n"
         )
         user_prompt = (
             f"Code:\n{code}\n\n"
@@ -364,10 +373,20 @@ class BuildRetrievalQuerySkill:
         message = str(kwargs["message"])
         context = kwargs["context"]
 
-        context_text = self._to_text(context).strip()
-        if context_text:
-            return f"{message}\n\nContext:\n{context_text}"
+        task_ctx = self._task_context_text(context).strip()
+        if task_ctx:
+            return f"{message}\n\nКонтекст задачи:\n{task_ctx}"
         return message
+
+    def _task_context_text(self, context: Any) -> str:
+        if not isinstance(context, dict):
+            return ""
+        parts: list[str] = []
+        if context.get("task_title"):
+            parts.append(str(context["task_title"]))
+        if context.get("task_description"):
+            parts.append(str(context["task_description"]))
+        return "\n".join(parts)
 
     def _to_text(self, value: Any) -> str:
         if isinstance(value, str):
@@ -383,6 +402,26 @@ class BuildChatPromptsSkill:
     name: str = "build_chat_prompts"
     description: str = "Builds prompts for the chat team agent."
 
+    def _format_task_context_for_prompt(self, context: Any) -> str:
+        if not isinstance(context, dict):
+            return "(нет контекста задачи)"
+        title = context.get("task_title")
+        desc = context.get("task_description")
+        if title or desc:
+            parts: list[str] = []
+            if title:
+                parts.append(f"Название задачи (пользователь открыл чат из этой задачи):\n{title}")
+            if desc:
+                parts.append(f"Описание задачи:\n{desc}")
+            return "\n\n".join(parts)
+        return (
+            "Режим: общий командный чат без привязки к конкретной задаче.\n"
+            "У тебя нет названия текущей задачи из этого режима — поля задачи намеренно не переданы.\n"
+            "Не выдумывай название задачи и не называй текущей задачей подписи интерфейса "
+            "(например «Рабочее пространство спринта», «Общий чат» и т.п.).\n"
+            "Если в истории чата раньше встречалось такое как «имя задачи» — считай это ошибкой и не опирайся на это."
+        )
+
     async def run(self, **kwargs: Any) -> tuple[str, str]:
         message = str(kwargs["message"])
         chat_history = kwargs["chat_history"]
@@ -390,7 +429,7 @@ class BuildChatPromptsSkill:
         knowledge_docs = kwargs["knowledge_docs"]
 
         history_text = self._to_text(chat_history)
-        context_text = self._to_text(context)
+        context_text = self._format_task_context_for_prompt(context)
         docs_text = self._format_docs(knowledge_docs)
 
         system_prompt = (
@@ -404,10 +443,12 @@ class BuildChatPromptsSkill:
             "4) Используй knowledge context (KB) только если он помогает и не противоречит.\n"
             "5) Если данных недостаточно — укажи краткие допущения и задай 1–3 уточняющих вопроса.\n"
             "6) Объём: ориентируйся на ~200–450 слов.\n"
+            "7) Если в блоке контекста указано, что это общий чат без задачи, не ссылайся на «текущую задачу» "
+            "и не приписывай пользователю конкретное название задачи; отвечай в общих терминах или спроси, о какой задаче речь.\n"
         )
 
         user_prompt = (
-            f"Knowledge context (user/context data):\n{context_text}\n\n"
+            f"Контекст для модели (только задача или явный режим общего чата):\n{context_text}\n\n"
             f"RAG knowledge documents (excerpts):\n{docs_text}\n\n"
             f"Chat history:\n{history_text}\n\n"
             f"New message:\n{message}\n"

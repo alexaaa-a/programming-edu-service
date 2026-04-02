@@ -4,12 +4,44 @@ from dishka.integrations.fastapi import FromDishka, DishkaRoute
 from submission_service.app.application.interfaces.services.token_service import TokenServiceInterface
 from submission_service.app.application.use_case.submissions.get_submission import GetSubmissionUseCase
 from submission_service.app.application.use_case.submissions.get_submission_review import GetSubmissionReviewUseCase
+from submission_service.app.application.use_case.submissions.get_user_submission_stats import GetUserSubmissionStatsUseCase
 from submission_service.app.application.use_case.submissions.submit_solution import SubmitSubmissionUseCase
-from submission_service.app.presentation.api.v1.submissions.schema import Submission, Review, Submit
+from submission_service.app.presentation.api.v1.submissions.schema import (
+    Submission,
+    Review,
+    Submit,
+    UserSubmissionStats,
+)
 from submission_service.app.presentation.api.deps import get_current_user_id_or_401
 
 
 router = APIRouter(route_class=DishkaRoute)
+
+
+def _review_or_none(review) -> Review | None:
+    if review is None:
+        return None
+    return Review(
+        score=review.score,
+        feedback=review.feedback,
+        suggestions=review.suggestions,
+    )
+
+
+@router.get(
+    "/submissions/me/stats",
+    status_code=status.HTTP_200_OK,
+    response_model=UserSubmissionStats,
+    description="Получить агрегированную статистику сабмишенов текущего пользователя"
+)
+async def get_my_submission_stats(
+        request: Request,
+        token_service: FromDishka[TokenServiceInterface],
+        uc: FromDishka[GetUserSubmissionStatsUseCase]
+):
+    user_id = get_current_user_id_or_401(request=request, token_service=token_service)
+    stats = await uc(user_id=user_id)
+    return UserSubmissionStats(**stats)
 
 
 @router.get(
@@ -38,11 +70,7 @@ async def get_submission(
         task_id=submission.task_id,
         code=submission.code,
         status=submission.status,
-        review=Review(
-            score=submission.review.score,
-            feedback=submission.review.feedback,
-            suggestions=submission.review.suggestions,
-        ),
+        review=_review_or_none(submission.review),
         created_at=submission.created_at,
         reviewed_at=submission.reviewed_at,
     )
@@ -67,6 +95,12 @@ async def get_submission_review(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Не найдено"
         )
+
+    return Review(
+        score=review.score,
+        feedback=review.feedback,
+        suggestions=review.suggestions,
+    )
 
 
 @router.post(

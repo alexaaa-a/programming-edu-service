@@ -6,7 +6,9 @@ from user_service.app.application.use_case.authorization.login import LoginUseCa
 from user_service.app.application.use_case.authorization.logout import LogoutUseCase
 from user_service.app.application.use_case.well_known.health import HealthUseCase
 from user_service.app.application.use_case.users import (ChangePasswordUseCase, UpdateProfileUseCase,
-                                                         GetCurrentUserUseCase)
+                                                         GetCurrentUserUseCase, AddAdminUseCase,
+                                                         RemoveAdminUseCase, GetAdminsUseCase,
+                                                         GetMyAdminRoleUseCase)
 
 
 class UseCaseProvider(Provider):
@@ -21,4 +23,8 @@ class UseCaseProvider(Provider):
         UpdateProfileUseCase,
         ChangePasswordUseCase,
         GetCurrentUserUseCase,
+        AddAdminUseCase,
+        RemoveAdminUseCase,
+        GetAdminsUseCase,
+        GetMyAdminRoleUseCase,
     )

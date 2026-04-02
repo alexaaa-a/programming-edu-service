@@ -59,6 +59,22 @@ class SubmissionsDB(SubmissionsDBInterface):
             self.logger.exception("Exception when getting all task submissions")
             return None
 
+    async def get_all_user_submissions(self, user_id: int) -> list[SubmissionDTO] | None:
+        try:
+            doc = await self.db.find({"user_id": user_id}).to_list(None)
+            if doc is None:
+                return None
+
+            submissions = []
+            for d in doc:
+                submissions.append(self._doc_to_template(d))
+
+            return submissions
+
+        except Exception:
+            self.logger.exception("Exception when getting all user submissions")
+            return None
+
     async def update_submission_with_review(
             self,
             submission_id: int,

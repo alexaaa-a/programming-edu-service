@@ -22,3 +22,16 @@ class UserShow(BaseModel):
     level: str | None
     direction: str | None
     email: str
+
+
+class AddAdminBody(BaseModel):
+    user_id: int = Field(..., description="ID пользователя, которого нужно сделать администратором")
+
+
+class AdminShow(BaseModel):
+    user_id: int
+    role: str
+
+
+class MyAdminRoleShow(BaseModel):
+    role: str

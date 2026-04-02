@@ -44,7 +44,7 @@ class ChatAgent(BaseAgent):
         if session_id is not None:
             chat_history = await self._memory.get_chat_history(str(session_id))  # type: ignore[union-attr]
 
-        query = message
+        query = await self._build_query.run(message=message, context=context)
         k_docs = 3
         knowledge_docs = await self._retrieve_docs.run(query=query, k=k_docs)
 

@@ -10,9 +10,9 @@ class HealthCheckUseCase:
         self._dependencies_checker = dependencies_checker
 
     async def __call__(self) -> None:
-        mongo_ok = await self._dependencies_checker.check_mongo()
+        chat_db_ok = await self._dependencies_checker.check_chat_history_db()
         redis_ok = await self._dependencies_checker.check_redis()
         kafka_ok = await self._dependencies_checker.check_kafka()
 
-        if not (mongo_ok and redis_ok and kafka_ok):
+        if not (chat_db_ok and redis_ok and kafka_ok):
             raise RuntimeError("Not all dependencies are ready")

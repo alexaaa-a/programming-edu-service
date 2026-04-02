@@ -16,8 +16,14 @@ class ChatWithTeamUseCase:
         self,
         message: str,
         session_id: str,
+        task_title: str | None = None,
+        task_description: str | None = None,
     ) -> ChatWithTeamResult:
-        user_context = {"session_id": session_id}
+        user_context: dict[str, object] = {"session_id": session_id}
+        if task_title:
+            user_context["task_title"] = task_title
+        if task_description:
+            user_context["task_description"] = task_description
 
         answer = await self._orchestrator.run(
             message=message,

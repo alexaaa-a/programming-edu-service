@@ -107,6 +107,18 @@ services:
     networks:
       - shared_network
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api_gateway
+    ports:
+      - "3000:80"
+    networks:
+      - shared_network
+
   prometheus:
     image: prom/prometheus:v2.54.1
     restart: unless-stopped

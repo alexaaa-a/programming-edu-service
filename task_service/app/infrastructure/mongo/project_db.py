@@ -35,17 +35,20 @@ class ProjectDB(ProjectDBInterface):
             data = self.db.find(
                 {
                     "project_template_id": {"$nin": exclude_ids},
-                    "level": level,
-                    "direction": direction
                 },
             )
 
             if data is None:
                 return None
 
+            level_norm = self._normalize_label(level)
+            direction_norm = self._normalize_label(direction)
             templates = []
             async for template in data:
-                templates.append(self._doc_to_template(template))
+                template_level_norm = self._normalize_label(str(template.get("level", "")))
+                template_direction_norm = self._normalize_label(str(template.get("direction", "")))
+                if template_level_norm == level_norm and template_direction_norm == direction_norm:
+                    templates.append(self._doc_to_template(template))
             return templates
 
         except Exception:
@@ -89,3 +92,7 @@ class ProjectDB(ProjectDBInterface):
             )
         d["sprints"] = sprints
         return ProjectTemplateDTO(**d)
+
+    @staticmethod
+    def _normalize_label(value: str) -> str:
+        return value.strip().lower().replace("_", "-").replace(" ", "-")
