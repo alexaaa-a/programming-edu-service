@@ -19,6 +19,7 @@ from submission_service.app.application.interfaces.db.task_cache import TaskCach
 from submission_service.app.presentation.api.healthcheck import router as healthcheck_router
 from submission_service.app.presentation.api.exception_handler import setup_error_handlers
 from submission_service.app.presentation.api.v1.router import router as v1_router
+from monitoring_python.fastapi_observability import configure_observability
 
 
 @asynccontextmanager
@@ -77,6 +78,8 @@ def create_app() -> FastAPI:
 
     app.include_router(v1_router, prefix="/submission/v1")
     app.include_router(healthcheck_router, prefix="/submission/health")
+
+    configure_observability(app, service_name="submission-service")
 
     return app
 

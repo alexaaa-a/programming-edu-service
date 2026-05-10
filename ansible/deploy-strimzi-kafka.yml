@@ -1,0 +1,5 @@
+- name: Deploy Strimzi operator and Kafka cluster
+  hosts: localhost
+  gather_facts: false
+  roles:
+    - role: strimzi_kafka

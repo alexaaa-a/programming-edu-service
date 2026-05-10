@@ -1,0 +1,137 @@
+name: CI — Kaniko, Helm tag, Argo CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  IMAGE_PREFIX: programming-edu
+
+jobs:
+  build-and-push:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: self-hosted
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - { name: user-service, context: /workspace, dockerfile: user_service/Dockerfile }
+          - { name: task-service, context: /workspace, dockerfile: task_service/Dockerfile }
+          - { name: submission-service, context: /workspace, dockerfile: submission_service/Dockerfile }
+          - { name: api-gateway, context: /workspace, dockerfile: api_gateway/Dockerfile }
+          - { name: agent-service, context: /workspace, dockerfile: agent_service/Dockerfile }
+          - { name: frontend, context: /workspace/frontend, dockerfile: Dockerfile }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Kaniko credentials
+        env:
+          REGISTRY_URL: ${{ secrets.REGISTRY_URL }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/kaniko-config
+          # Support both ghcr.io (token auth) and insecure local registry
+          if echo "${REGISTRY_URL}" | grep -q "ghcr.io"; then
+            AUTH=$(printf '%s:%s' "${GHCR_USER}" "${GHCR_TOKEN}" | base64 | tr -d '\n')
+            cat > /tmp/kaniko-config/config.json <<EOF
+          {
+            "auths": {
+              "ghcr.io": { "auth": "${AUTH}" }
+            }
+          }
+          EOF
+          else
+            echo '{}' > /tmp/kaniko-config/config.json
+          fi
+
+      - name: Kaniko build and push
+        env:
+          REGISTRY_URL: ${{ secrets.REGISTRY_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${REGISTRY_URL:-}" ]; then
+            echo "REGISTRY_URL secret is not set."
+            exit 1
+          fi
+          TAG="${GITHUB_SHA}"
+          # Use --insecure-registry only for non-ghcr registries
+          INSECURE_FLAG=""
+          DOCKER_EXTRA=()
+          if ! echo "${REGISTRY_URL}" | grep -q "ghcr.io"; then
+            INSECURE_FLAG="--insecure-registry ${REGISTRY_URL} --skip-tls-verify"
+            # Kaniko в контейнере: host.docker.internal → хост с реестром (Linux/macOS Docker)
+            DOCKER_EXTRA+=(--add-host=host.docker.internal:host-gateway)
+          fi
+          docker run --rm \
+            "${DOCKER_EXTRA[@]}" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -v "/tmp/kaniko-config:/kaniko/.docker" \
+            gcr.io/kaniko-project/executor:latest \
+            --context "${{ matrix.service.context }}" \
+            --dockerfile "${{ matrix.service.dockerfile }}" \
+            --destination "${REGISTRY_URL}/${IMAGE_PREFIX}/${{ matrix.service.name }}:${TAG}" \
+            --destination "${REGISTRY_URL}/${IMAGE_PREFIX}/${{ matrix.service.name }}:latest" \
+            ${INSECURE_FLAG}
+
+  bump-helm-tag:
+    needs: [build-and-push]
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set global.imageTag
+        run: |
+          docker run --rm -v "${GITHUB_WORKSPACE}:/work" -w /work mikefarah/yq:4 \
+            -i '.global.imageTag = "${{ github.sha }}"' charts/edu-stack/values-minikube.yaml
+
+      - name: Commit chart values
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore(ci): set global.imageTag to ${{ github.sha }} [skip ci]"
+          file_pattern: charts/edu-stack/values-minikube.yaml
+
+  argocd-sync:
+    needs: [bump-helm-tag]
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: self-hosted
+    steps:
+      - name: Sync Argo CD application (optional)
+        env:
+          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+          ARGOCD_USERNAME: ${{ secrets.ARGOCD_USERNAME }}
+          ARGOCD_PASSWORD: ${{ secrets.ARGOCD_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ARGOCD_SERVER:-}" ]; then
+            echo "ARGOCD_SERVER not set; skipping sync."
+            exit 0
+          fi
+          if ! command -v argocd >/dev/null 2>&1; then
+            echo "argocd CLI not found on runner; install it or rely on automated sync."
+            exit 0
+          fi
+          if [ -n "${ARGOCD_AUTH_TOKEN:-}" ]; then
+            argocd app sync edu-stack --server "${ARGOCD_SERVER}" --auth-token "${ARGOCD_AUTH_TOKEN}" --grpc-web
+          elif [ -n "${ARGOCD_PASSWORD:-}" ]; then
+            USER="${ARGOCD_USERNAME:-admin}"
+            argocd login "${ARGOCD_SERVER}" --username "${USER}" --password "${ARGOCD_PASSWORD}" --insecure --grpc-web
+            argocd app sync edu-stack --server "${ARGOCD_SERVER}" --grpc-web
+          else
+            echo "Set ARGOCD_AUTH_TOKEN or ARGOCD_PASSWORD (+ optional ARGOCD_USERNAME) to enable sync; skipping."
+            exit 0
+          fi

@@ -1,0 +1,34 @@
+---
+strimzi_namespace: kafka
+strimzi_release_name: strimzi-kafka-operator
+strimzi_chart_repo: https://strimzi.io/charts/
+strimzi_chart_ref: strimzi/strimzi-kafka-operator
+strimzi_chart_version: "0.51.0"
+strimzi_helm_timeout: 20m
+strimzi_wait_for_operator: true
+strimzi_operator_deployment_name: strimzi-cluster-operator
+
+kafka_cluster_name: edu-kafka
+kafka_kraft_enabled: true
+kafka_replicas: 1
+kafka_listeners:
+  - name: plain
+    port: 9092
+    type: internal
+    tls: false
+
+kafka_config:
+  offsets.topic.replication.factor: 1
+  transaction.state.log.replication.factor: 1
+  transaction.state.log.min.isr: 1
+  default.replication.factor: 1
+  min.insync.replicas: 1
+
+kafka_storage:
+  type: ephemeral
+
+zookeeper_replicas: 1
+zookeeper_storage:
+  type: ephemeral
+
+entity_operator_enabled: true

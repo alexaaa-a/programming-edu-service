@@ -1,0 +1,25 @@
+apiVersion: v2
+name: edu-stack
+description: Umbrella chart — user, task, submission, api-gateway, agent, frontend
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+dependencies:
+  - name: user-service
+    version: 0.1.0
+    repository: file://../user-service
+  - name: task-service
+    version: 0.1.0
+    repository: file://../task-service
+  - name: submission-service
+    version: 0.1.0
+    repository: file://../submission-service
+  - name: api-gateway
+    version: 0.1.0
+    repository: file://../api-gateway
+  - name: agent-service
+    version: 0.1.0
+    repository: file://../agent-service
+  - name: frontend
+    version: 0.1.0
+    repository: file://../frontend

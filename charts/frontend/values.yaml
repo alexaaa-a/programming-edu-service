@@ -1,0 +1,18 @@
+global:
+  imageTag: ""
+
+replicaCount: 1
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: localhost:62682/programming-edu/frontend
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 80
+
+resources: {}

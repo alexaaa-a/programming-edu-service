@@ -25,6 +25,8 @@ from agent_service.app.infrastructure.memory.knowledge_base_indexer import (
 )
 from pathlib import Path
 
+from monitoring_python.fastapi_observability import configure_observability
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -108,6 +110,8 @@ def create_app() -> FastAPI:
     app.include_router(healthcheck_router, prefix="/agents/health")
     app.include_router(v1_router, prefix="/agents/v1")
     app.include_router(metrics_router, prefix="/agents")
+
+    configure_observability(app, service_name="agent-service")
 
     return app
 

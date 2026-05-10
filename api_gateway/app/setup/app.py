@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
 from api_gateway.app.config import Settings
+from monitoring_python.fastapi_observability import configure_observability
 
 logger = logging.getLogger(__name__)
 
@@ -367,6 +368,8 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.exception("gateway.proxy.error path=%s err=%s", request.url.path, e)
             return JSONResponse({"detail": "Bad Gateway"}, status_code=502)
+
+    configure_observability(app, service_name="api-gateway")
 
     return app
 

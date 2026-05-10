@@ -12,6 +12,7 @@ from user_service.app.application.interfaces.kafka import UserEventProducerInter
 from user_service.app.presentation.api.healthcheck import router as healthcheck_router
 from user_service.app.presentation.api.exception_handler import setup_error_handlers
 from user_service.app.presentation.api.v1.app import app as app_v1
+from monitoring_python.fastapi_observability import configure_observability
 
 
 @asynccontextmanager
@@ -49,6 +50,8 @@ def create_app() -> FastAPI:
 
     app.mount("/user/v1", app_v1)
     app.include_router(healthcheck_router, prefix="/user/health")
+
+    configure_observability(app, service_name="user-service")
 
     return app
 

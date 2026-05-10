@@ -1,0 +1,21 @@
+dependencies:
+- name: user-service
+  repository: file://../user-service
+  version: 0.1.0
+- name: task-service
+  repository: file://../task-service
+  version: 0.1.0
+- name: submission-service
+  repository: file://../submission-service
+  version: 0.1.0
+- name: api-gateway
+  repository: file://../api-gateway
+  version: 0.1.0
+- name: agent-service
+  repository: file://../agent-service
+  version: 0.1.0
+- name: frontend
+  repository: file://../frontend
+  version: 0.1.0
+digest: sha256:fd4f7252dd4f5eb6d7f821c8c0ac853d9dc5adb2102621a0ebc3728d4c942170
+generated: "2026-05-08T21:22:39.177063+03:00"

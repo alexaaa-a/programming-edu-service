@@ -1,0 +1,11 @@
+groups:
+  - name: service-availability
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Scrape target down"
+          description: "Job {{ $labels.job }} instance {{ $labels.instance }} is down."

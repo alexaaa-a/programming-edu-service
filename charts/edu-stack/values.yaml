@@ -1,0 +1,40 @@
+global:
+  imageTag: latest
+
+user-service:
+  fullnameOverride: user-service
+  image:
+    repository: localhost:62682/programming-edu/user-service
+    tag: latest
+
+task-service:
+  fullnameOverride: task-service
+  image:
+    repository: localhost:62682/programming-edu/task-service
+    tag: latest
+
+submission-service:
+  fullnameOverride: submission-service
+  image:
+    repository: localhost:62682/programming-edu/submission-service
+    tag: latest
+
+api-gateway:
+  fullnameOverride: api-gateway
+  image:
+    repository: localhost:62682/programming-edu/api-gateway
+    tag: latest
+
+agent-service:
+  fullnameOverride: agent-service
+  image:
+    repository: localhost:62682/programming-edu/agent-service
+    tag: latest
+  persistence:
+    enabled: false
+
+frontend:
+  fullnameOverride: frontend
+  image:
+    repository: localhost:62682/programming-edu/frontend
+    tag: latest

@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: haproxy-config
+  namespace: edge-system
+data:
+  haproxy.cfg: |
+    global
+      log stdout format raw local0
+      maxconn 2000
+
+    defaults
+      mode http
+      log global
+      option httplog
+      timeout connect 5s
+      timeout client  30s
+      timeout server  30s
+
+    frontend public_http
+      bind *:80
+      default_backend istio_ingress
+
+    backend istio_ingress
+      balance roundrobin
+      option httpchk GET /healthz/ready
+      server ingress-gw istio-ingressgateway.istio-system.svc.cluster.local:80 check

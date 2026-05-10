@@ -1,0 +1,56 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: {{ kafka_cluster_name }}
+  namespace: {{ strimzi_namespace }}
+spec:
+{% if kafka_kraft_enabled %}
+  kafka:
+    version: 3.8.0
+    replicas: {{ kafka_replicas }}
+    listeners:
+{% for listener in kafka_listeners %}
+      - name: {{ listener.name }}
+        port: {{ listener.port }}
+        type: {{ listener.type }}
+        tls: {{ listener.tls | lower }}
+{% endfor %}
+    config:
+{% for key, value in kafka_config.items() %}
+      {{ key }}: {{ value }}
+{% endfor %}
+    storage:
+{% for key, value in kafka_storage.items() %}
+      {{ key }}: {{ value }}
+{% endfor %}
+{% else %}
+  kafka:
+    version: 3.8.0
+    replicas: {{ kafka_replicas }}
+    listeners:
+{% for listener in kafka_listeners %}
+      - name: {{ listener.name }}
+        port: {{ listener.port }}
+        type: {{ listener.type }}
+        tls: {{ listener.tls | lower }}
+{% endfor %}
+    config:
+{% for key, value in kafka_config.items() %}
+      {{ key }}: {{ value }}
+{% endfor %}
+    storage:
+{% for key, value in kafka_storage.items() %}
+      {{ key }}: {{ value }}
+{% endfor %}
+  zookeeper:
+    replicas: {{ zookeeper_replicas }}
+    storage:
+{% for key, value in zookeeper_storage.items() %}
+      {{ key }}: {{ value }}
+{% endfor %}
+{% endif %}
+{% if entity_operator_enabled %}
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+{% endif %}

@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: observability-ui
+  namespace: observability
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: grafana.edu.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kps-grafana
+                port:
+                  number: 80
+    - host: prometheus.edu.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kps-kube-prometheus-prometheus
+                port:
+                  number: 9090

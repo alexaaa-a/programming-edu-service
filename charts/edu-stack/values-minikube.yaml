@@ -1,0 +1,55 @@
+global:
+  imageTag: latest
+
+user-service:
+  fullnameOverride: user-service
+  image:
+    repository: host.minikube.internal:62682/programming-edu/user-service
+    tag: latest
+  env: {}
+  extraEnvFrom:
+    - user-service-secrets
+
+task-service:
+  fullnameOverride: task-service
+  image:
+    repository: host.minikube.internal:62682/programming-edu/task-service
+    tag: latest
+  env: {}
+  extraEnvFrom:
+    - task-service-secrets
+
+submission-service:
+  fullnameOverride: submission-service
+  image:
+    repository: host.minikube.internal:62682/programming-edu/submission-service
+    tag: latest
+  env: {}
+  extraEnvFrom:
+    - submission-service-secrets
+
+api-gateway:
+  fullnameOverride: api-gateway
+  image:
+    repository: host.minikube.internal:62682/programming-edu/api-gateway
+    tag: latest
+  env: {}
+  extraEnvFrom:
+    - api-gateway-secrets
+
+agent-service:
+  fullnameOverride: agent-service
+  image:
+    repository: host.minikube.internal:62682/programming-edu/agent-service
+    tag: latest
+  persistence:
+    enabled: false
+  env: {}
+  extraEnvFrom:
+    - agent-service-secrets
+
+frontend:
+  fullnameOverride: frontend
+  image:
+    repository: host.minikube.internal:62682/programming-edu/frontend
+    tag: latest
