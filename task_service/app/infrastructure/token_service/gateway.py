@@ -20,6 +20,8 @@ class TokenService(TokenServiceInterface):
                 self.settings.token_settings.secret_key,
                 algorithms=[self.settings.token_settings.algorithm],
             )
+            if payload.get("typ") != "access":
+                return None
             return payload["user_id"]
 
         except Exception:

@@ -9,10 +9,10 @@ class CacheInterface(Protocol):
 
     @abstractmethod
     async def set(
-        self,
-        key: str,
-        value: str,
-        ttl_sec: int | None = None,
+            self,
+            key: str,
+            value: str,
+            ttl_sec: int | None = None,
     ) -> bool:
         raise NotImplementedError
 

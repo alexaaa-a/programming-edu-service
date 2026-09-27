@@ -9,6 +9,7 @@ receivers:
 processors:
   batch:
     timeout: 10s
+    send_batch_size: 256
 
 exporters:
   otlp:
@@ -16,7 +17,15 @@ exporters:
     tls:
       insecure: true
 
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
 service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      address: 0.0.0.0:8888
   pipelines:
     traces:
       receivers: [otlp]

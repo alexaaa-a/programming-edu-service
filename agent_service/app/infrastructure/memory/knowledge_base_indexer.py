@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import hashlib
 from dataclasses import dataclass
 from dataclasses import field
@@ -18,10 +16,9 @@ def _sha256_text(text: str) -> str:
 
 
 def _chunk_text_by_words(
-    text: str,
-    *,
-    chunk_size_words: int,
-    overlap_words: int,
+        text: str,
+        chunk_size_words: int,
+        overlap_words: int,
 ) -> list[str]:
     if chunk_size_words <= 0:
         return [text.strip()]
@@ -75,6 +72,7 @@ class KnowledgeBaseIndexingConfig:
     chunk_size_words: int = 400
     overlap_words: int = 50
     flag_path: Path | None = None
+    embedding_id: str = ""
     type_by_keyword: dict[str, str] = field(
         default_factory=lambda: {
             "bug": "bugs",
@@ -96,9 +94,8 @@ def _detect_doc_type(stem: str, type_by_keyword: dict[str, str]) -> str:
 
 
 async def index_knowledge_base(
-    *,
-    memory: MemoryInterface,
-    config: KnowledgeBaseIndexingConfig,
+        memory: MemoryInterface,
+        config: KnowledgeBaseIndexingConfig,
 ) -> None:
     knowledge_dir = config.knowledge_dir
     if not knowledge_dir.exists():
@@ -108,7 +105,8 @@ async def index_knowledge_base(
     settings_fingerprint = (
         f"chunk_size_words={config.chunk_size_words}|"
         f"overlap_words={config.overlap_words}|"
-        f"type_rules={sorted(config.type_by_keyword.items())}"
+        f"type_rules={sorted(config.type_by_keyword.items())}|"
+        f"embedding={config.embedding_id}"
     )
     fingerprint = f"{fingerprint}||{settings_fingerprint}"
 
@@ -144,6 +142,8 @@ async def index_knowledge_base(
                 metadata={
                     "id": chunk_id,
                     "source": source,
+                    "writer": "kb_indexer",
+                    "origin": "knowledge_base",
                     "type": doc_type,
                     "doc": md_path.stem,
                     "chunk_idx": idx,

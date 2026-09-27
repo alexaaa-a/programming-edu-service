@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import re
 
 from agent_service.app.application.eval.interfaces.review_metrics_calculator import (
@@ -10,7 +8,7 @@ from agent_service.app.application.dto import Review
 
 
 class SimpleReviewMetricsCalculator(ReviewMetricsCalculator):
-    def compute(self, *, expected: Review, actual: Review) -> ReviewEvaluationMetrics:
+    def compute(self, expected: Review, actual: Review) -> ReviewEvaluationMetrics:
         score_diff = expected.score - actual.score
         score_abs_error = float(abs(score_diff))
         score_squared_error = float(score_diff**2)
@@ -52,7 +50,7 @@ def _normalize_suggestion(s: str) -> str:
     return s.strip().lower()
 
 
-def _precision_recall_f1(*, expected: set[str], actual: set[str]) -> tuple[float, float, float]:
+def _precision_recall_f1(expected: set[str], actual: set[str]) -> tuple[float, float, float]:
     if not expected and not actual:
         return 1.0, 1.0, 1.0
     if not actual and expected:

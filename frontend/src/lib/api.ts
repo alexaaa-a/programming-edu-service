@@ -8,6 +8,9 @@ import type {
   AdminUser,
   AuthResult,
   BoardResponse,
+  Career,
+  CareerLetter,
+  ChatHistoryItem,
   ChatResponse,
   CreateProjectTemplatePayload,
   MyAdminRole,
@@ -16,6 +19,7 @@ import type {
   TemplateForStart,
   UserSubmissionStats,
   UserShow,
+  UserTrajectory,
 } from "./types";
 
 const base = () => import.meta.env.VITE_API_BASE_URL ?? "";
@@ -26,6 +30,10 @@ async function parseApiError(res: Response): Promise<string> {
     if (j && typeof j === "object" && "detail" in j) {
       const d = (j as { detail: unknown }).detail;
       if (typeof d === "string") return d;
+      if (d && typeof d === "object" && !Array.isArray(d) && "message" in d) {
+        const msg = (d as { message: unknown }).message;
+        if (typeof msg === "string" && msg) return msg;
+      }
       if (Array.isArray(d)) {
         return d
           .map((x) =>
@@ -187,6 +195,13 @@ export async function startProject(templateId: number): Promise<void> {
   await postJson("/api/task/v1/project/start", { template_id: templateId });
 }
 
+export async function getCareer(): Promise<Career | null> {
+  const res = await apiFetch("/api/task/v1/career");
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(await parseApiError(res));
+  return res.json() as Promise<Career>;
+}
+
 export async function getBoard(): Promise<BoardResponse> {
   return getJson<BoardResponse>("/api/task/v1/tasks/board");
 }
@@ -196,6 +211,19 @@ export async function updateTaskStatus(
   status: string,
 ): Promise<void> {
   await patchJson(`/api/task/v1/tasks/${taskId}/status`, { status });
+}
+
+export async function submitPeerReview(
+  taskId: number,
+  note: string,
+): Promise<{ close_quality: string; emma: string }> {
+  const res = await apiFetch(`/api/task/v1/tasks/${taskId}/peer-review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note }),
+  });
+  if (!res.ok) throw new Error(await parseApiError(res));
+  return res.json() as Promise<{ close_quality: string; emma: string }>;
 }
 
 export async function submitCode(taskId: number, code: string): Promise<number> {
@@ -224,14 +252,116 @@ export async function getMySubmissionStats(): Promise<UserSubmissionStats> {
   return getJson<UserSubmissionStats>("/api/submission/v1/submissions/me/stats");
 }
 
-export async function completeSprint(): Promise<void> {
-  await postJson("/api/task/v1/sprint/complete");
+export async function getMyTrajectory(taskId?: number | null): Promise<UserTrajectory> {
+  const query =
+    taskId != null && Number.isFinite(taskId)
+      ? `?task_id=${encodeURIComponent(String(taskId))}`
+      : "";
+  return getJson<UserTrajectory>(`/api/submission/v1/submissions/me/trajectory${query}`);
+}
+
+export async function completeSprint(force = false): Promise<"letter" | "demo" | "closed"> {
+  const headers: Record<string, string> = {};
+  if (force) {
+    headers["X-Confirm-Force-Sprint"] = "true";
+  }
+  const res = await apiFetch(`/api/task/v1/sprint/complete${force ? "?force=true" : ""}`, {
+    method: "POST",
+    headers,
+  });
+  if (res.status === 409) {
+    try {
+      const body: unknown = await res.json();
+      const detail =
+        body && typeof body === "object" && "detail" in body
+          ? (body as { detail: unknown }).detail
+          : null;
+      if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+        const d = detail as {
+          code?: unknown;
+          message?: unknown;
+          force_allowed?: unknown;
+        };
+        if (d.code === "hold") {
+          throw new SprintHoldError(
+            typeof d.message === "string" && d.message
+              ? d.message
+              : "Траектория ещё тяжёлая — рано открывать следующий спринт.",
+            d.force_allowed === true,
+          );
+        }
+      }
+    } catch (e) {
+      if (e instanceof SprintHoldError) throw e;
+    }
+  }
+  if (!res.ok) throw new Error(await parseApiError(res));
+  const data = (await res.json()) as { status?: string };
+  if (data.status === "letter" || data.status === "demo") return data.status;
+  return "closed";
+}
+
+export async function submitFridayDemo(pitch: string, answer: string): Promise<CareerLetter> {
+  const res = await apiFetch("/api/task/v1/career/demo", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pitch, answer }),
+  });
+  if (!res.ok) throw new Error(await parseApiError(res));
+  const data = (await res.json()) as { letter?: CareerLetter };
+  if (!data.letter) throw new Error("Письмо не пришло");
+  return data.letter;
+}
+
+export async function spendBonus(item: string, taskId?: number): Promise<Career> {
+  const res = await apiFetch("/api/task/v1/career/spend", {
+    method: "POST",
+    json: { item, task_id: taskId ?? null },
+  });
+  if (!res.ok) throw new Error(await parseApiError(res));
+  return res.json() as Promise<Career>;
+}
+
+export async function consumeEmmaSession(): Promise<Career> {
+  const res = await apiFetch("/api/task/v1/career/consume", { method: "POST" });
+  if (!res.ok) throw new Error(await parseApiError(res));
+  return res.json() as Promise<Career>;
+}
+
+export async function acceptCareerLetter(): Promise<void> {
+  const res = await apiFetch("/api/task/v1/career/accept", { method: "POST" });
+  if (!res.ok) throw new Error(await parseApiError(res));
+}
+
+export class SprintHoldError extends Error {
+  readonly forceAllowed: boolean;
+
+  constructor(message: string, forceAllowed: boolean) {
+    super(message);
+    this.name = "SprintHoldError";
+    this.forceAllowed = forceAllowed;
+  }
+}
+
+export async function getChatHistory(taskId?: number): Promise<ChatHistoryItem[]> {
+  const query = taskId != null ? `?task_id=${taskId}` : "";
+  const res = await apiFetch(`/api/agents/v1/chat/history${query}`);
+  if (!res.ok) throw new Error(await parseApiError(res));
+  const data = (await res.json()) as { messages?: ChatHistoryItem[] };
+  return Array.isArray(data.messages) ? data.messages : [];
 }
 
 export async function chatMessage(
   sessionId: string,
   message: string,
-  context?: { task_title?: string; task_description?: string },
+  context?: {
+    task_title?: string;
+    task_description?: string;
+    task_id?: number;
+    turn_id?: string;
+    solo_only?: boolean;
+    emma_briefing?: string;
+  },
 ): Promise<ChatResponse> {
   const res = await apiFetch("/api/agents/v1/chat", {
     method: "POST",
@@ -243,13 +373,14 @@ export async function chatMessage(
 
 export async function logoutRemote(): Promise<void> {
   const rt = getRefreshToken();
-  if (!rt) return;
   try {
-    await apiFetch(
-      "/api/user/v1/auth/logout",
-      { method: "POST", json: { refresh_token: rt } },
-      false,
-    );
+    if (rt) {
+      await apiFetch(
+        "/api/user/v1/auth/logout",
+        { method: "POST", json: { refresh_token: rt } },
+        false,
+      );
+    }
   } finally {
     clearTokens();
   }

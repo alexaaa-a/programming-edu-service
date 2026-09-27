@@ -11,6 +11,7 @@ ecdsa==0.19.1
 email-validator==2.3.0
 fastapi==0.133.1
 h11==0.16.0
+httpx==0.28.1
 idna==3.11
 passlib==1.7.4
 pyasn1==0.6.2
@@ -25,18 +26,22 @@ python-json-logger==4.0.0
 redis==7.2.1
 rsa==4.9.1
 six==1.17.0
-aiohttp==3.10.5
 starlette==0.52.1
+openai==1.109.1
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 uvicorn==0.41.0
 chromadb
+pytest==8.3.5
 prometheus-client
 prometheus-fastapi-instrumentator==7.0.0
-opentelemetry-api==1.28.2
-opentelemetry-sdk==1.28.2
-opentelemetry-instrumentation-fastapi==0.49b2
-opentelemetry-exporter-otlp-proto-grpc==1.28.2
+motor==3.7.1
+langfuse>=3.10.0,<4
+langgraph>=1.0.0,<1.1
+opentelemetry-api==1.33.1
+opentelemetry-sdk==1.33.1
+opentelemetry-instrumentation-fastapi==0.54b1
+opentelemetry-exporter-otlp-proto-grpc==1.33.1
 grpcio==1.68.0
 tinydb==4.8.2
 

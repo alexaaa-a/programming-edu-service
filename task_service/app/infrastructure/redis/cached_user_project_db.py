@@ -26,11 +26,11 @@ def _user_project_from_json(s: str) -> UserProjectDTO | None:
 
 class CachedUserProjectDB(UserProjectDBInterface):
     def __init__(
-        self,
-        inner: UserProjectDBInterface,
-        cache: CacheInterface,
-        logger: logging.Logger,
-        ttl_sec: int = 300,
+            self,
+            inner: UserProjectDBInterface,
+            cache: CacheInterface,
+            logger: logging.Logger,
+            ttl_sec: int = 300,
     ) -> None:
         self._inner = inner
         self._cache = cache
@@ -67,10 +67,10 @@ class CachedUserProjectDB(UserProjectDBInterface):
             await self._cache.delete(self._key(user_id))
 
     async def update_user_project(
-        self,
-        user_project_id: int,
-        new_status: str,
-        completed_at: datetime.datetime,
+            self,
+            user_project_id: int,
+            new_status: str,
+            completed_at: datetime.datetime,
     ) -> bool:
         ok = await self._inner.update_user_project(
             user_project_id, new_status, completed_at
@@ -80,9 +80,9 @@ class CachedUserProjectDB(UserProjectDBInterface):
         return ok
 
     async def update_current_sprint_order(
-        self,
-        user_project_id: int,
-        new_sprint_order: int,
+            self,
+            user_project_id: int,
+            new_sprint_order: int,
     ) -> bool:
         ok = await self._inner.update_current_sprint_order(
             user_project_id, new_sprint_order

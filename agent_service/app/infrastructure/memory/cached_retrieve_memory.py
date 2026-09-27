@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 import hashlib
 import json
@@ -15,14 +13,13 @@ from agent_service.app.application.observability.tracing import get_trace_id
 
 class CachedMemory(MemoryInterface):
     def __init__(
-        self,
-        *,
-        inner: MemoryInterface,
-        retrieve_cache: RetrieveCache,
-        ttl_sec: int,
-        cache_version: str = "v1",
-        logger: logging.Logger | None = None,
-        metrics_recorder: MetricsRecorder | None = None,
+            self,
+            inner: MemoryInterface,
+            retrieve_cache: RetrieveCache,
+            ttl_sec: int,
+            cache_version: str = "v1",
+            logger: logging.Logger | None = None,
+            metrics_recorder: MetricsRecorder | None = None,
     ) -> None:
         self._inner = inner
         self._cache = retrieve_cache
@@ -32,20 +29,26 @@ class CachedMemory(MemoryInterface):
         self._metrics = metrics_recorder
 
     async def retrieve(
-        self,
-        query: str,
-        k: int,
-        types: set[str] | None = None,
+            self,
+            query: str,
+            k: int,
+            types: set[str] | None = None,
     ) -> list[RetrievedDocument]:
         async def _impl() -> list[RetrievedDocument]:
             if self._ttl_sec <= 0:
                 return await self._inner.retrieve(query=query, k=k, types=types)
 
+            generation = "0"
+            try:
+                generation = await self._cache.generation()
+            except Exception:
+                generation = "0"
             key_payload: dict[str, Any] = {
                 "q": query,
                 "k": int(k),
                 "types": sorted(map(str, types)) if types else None,
                 "v": self._cache_version,
+                "g": generation,
             }
             key_raw = json.dumps(key_payload, ensure_ascii=False, default=str)
             key = "rag_retrieve:" + hashlib.sha256(key_raw.encode("utf-8")).hexdigest()
@@ -92,18 +95,36 @@ class CachedMemory(MemoryInterface):
 
     async def save_document(self, text: str, metadata: dict) -> None:
         await self._inner.save_document(text=text, metadata=metadata)
+        try:
+            await self._cache.bump_generation()
+        except Exception:
+            if self._logger is not None:
+                self._logger.exception("memory.cache.bump_failed")
 
     async def get_chat_history(self, session_id: str) -> list[Any]:
         return await self._inner.get_chat_history(session_id=session_id)
 
     async def append_chat_message(
-        self,
-        session_id: str,
-        role: str,
-        content: str,
+            self,
+            session_id: str,
+            role: str,
+            content: str,
+            turn_id: str | None = None,
     ) -> None:
         await self._inner.append_chat_message(
             session_id=session_id,
             role=role,
             content=content,
+            turn_id=turn_id,
         )
+
+    async def rollback_last_chat_message(
+            self,
+            session_id: str,
+            role: str,
+            content: str,
+    ) -> None:
+        rollback = getattr(self._inner, "rollback_last_chat_message", None)
+        if rollback is None:
+            return
+        await rollback(session_id=session_id, role=role, content=content)

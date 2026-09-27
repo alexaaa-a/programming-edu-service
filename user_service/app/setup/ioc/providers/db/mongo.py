@@ -13,7 +13,6 @@ from user_service.app.infrastructure.mongo.user_repo import UserRepository
 
 
 class MongoClientProvider(Provider):
-
     @provide(scope=Scope.APP)
     async def mongo_client(self, settings: Settings) -> AsyncIterable[AsyncIOMotorClient]:
         client = AsyncIOMotorClient(

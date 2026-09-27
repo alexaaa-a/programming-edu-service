@@ -1,19 +1,18 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useNavigate, Link } from "react-router";
-import { Code2 } from "lucide-react";
 import { toast } from "sonner";
-import { Input } from "../components/ui/input";
-import { Button } from "../components/ui/button";
+import { OnboardingShell } from "../components/onboarding/OnboardingShell";
+import { Field, PrimaryButton } from "../components/onboarding/Field";
 import { getMe, loginUser } from "@/lib/api";
 import { setTokens } from "@/lib/auth-storage";
 
 export default function Login() {
   const navigate = useNavigate();
-  const [email, setПочта] = useState("");
-  const [password, setПароль] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
@@ -34,58 +33,55 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6">
-      <div className="w-full max-w-md">
-        <div className="bg-white rounded-[20px] p-8 shadow-lg">
-          <div className="flex justify-center mb-6">
-            <div className="w-16 h-16 bg-gradient-to-br from-[#FF9BB5] to-[#FFC2D4] rounded-full flex items-center justify-center">
-              <Code2 className="w-8 h-8 text-white" />
-            </div>
-          </div>
+    <OnboardingShell
+      aside={
+        <>
+          <p className="font-mono text-[11px] text-primary">
+            Рабочий стол джуна
+          </p>
+          <h1 className="text-[2.75rem] leading-[1.12] xl:text-5xl">
+            Команда, которая не прощает сырой код.
+          </h1>
+          <p className="text-[15px] leading-relaxed text-muted-foreground">
+            Спринты, ревью и живой чат с агентами. Как стажировка — только с ментором,
+            который не уходит в 18:00.
+          </p>
+        </>
+      }
+    >
+      <h2 className="mb-1 text-2xl font-medium tracking-tight">Вход</h2>
+      <p className="mb-8 text-sm text-muted-foreground">Продолжить симуляцию</p>
 
-          <h1 className="text-center mb-8 text-2xl">Вход 💻</h1>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <Field
+          label="Почта"
+          type="email"
+          name="email"
+          autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+        <Field
+          label="Пароль"
+          type="password"
+          name="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+        <PrimaryButton type="submit" disabled={loading} className="mt-2">
+          {loading ? "Входим…" : "Войти"}
+        </PrimaryButton>
+      </form>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <Input
-                type="email"
-                placeholder="Почта"
-                value={email}
-                onChange={(e) => setПочта(e.target.value)}
-                className="h-14 rounded-[20px] border-2 border-[#FFE5EC] bg-white px-5 focus:border-[#FF9BB5] transition-colors"
-                required
-              />
-            </div>
-            <div>
-              <Input
-                type="password"
-                placeholder="Пароль"
-                value={password}
-                onChange={(e) => setПароль(e.target.value)}
-                className="h-14 rounded-[20px] border-2 border-[#FFE5EC] bg-white px-5 focus:border-[#FF9BB5] transition-colors"
-                required
-              />
-            </div>
-
-            <Button
-              type="submit"
-              disabled={loading}
-              className="w-full h-14 rounded-[20px] bg-gradient-to-r from-[#FF9BB5] to-[#FFC2D4] hover:from-[#FF8AAA] hover:to-[#FFB1C9] text-white text-lg shadow-md transition-all"
-            >
-              {loading ? "Подождите…" : "Войти"}
-            </Button>
-          </form>
-
-          <div className="text-center mt-6">
-            <Link
-              to="/"
-              className="text-sm text-[#9E9E9E] hover:text-[#FF9BB5] transition-colors"
-            >
-              Создать аккаунт
-            </Link>
-          </div>
-        </div>
-      </div>
-    </div>
+      <p className="mt-8 text-sm text-muted-foreground">
+        Нет аккаунта?{" "}
+        <Link to="/" className="text-foreground underline-offset-4 hover:text-primary hover:underline">
+          Создать
+        </Link>
+      </p>
+    </OnboardingShell>
   );
 }

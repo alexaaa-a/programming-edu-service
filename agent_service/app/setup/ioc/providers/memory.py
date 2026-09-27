@@ -1,6 +1,10 @@
-import aiohttp
-from dishka import Provider, Scope, provide
 import logging
+from collections.abc import AsyncIterable
+from pathlib import Path
+
+from motor.motor_asyncio import AsyncIOMotorClient
+from openai import AsyncOpenAI
+from dishka import Provider, Scope, provide
 
 from agent_service.app.application.interfaces import (
     ChatHistoryRepository,
@@ -9,68 +13,121 @@ from agent_service.app.application.interfaces import (
     RetrieveCache,
 )
 from agent_service.app.application.observability.metrics_recorder import MetricsRecorder
+from agent_service.app.application.observability.llm_trace import LlmTracer
 from agent_service.app.config import Settings
-from agent_service.app.infrastructure.llm import OpenRouterClient
-from agent_service.app.infrastructure.memory.rag_memory import RagMemory
+from agent_service.app.infrastructure.llm import OpenAIClient
 from agent_service.app.infrastructure.memory.cached_retrieve_memory import CachedMemory
-from agent_service.app.infrastructure.chat_history.tinydb_chat_history_repository import (
-    TinyDbChatHistoryConfig,
-    TinyDbChatHistoryRepository,
+from agent_service.app.infrastructure.memory.embedding_service import build_embedding_service
+from agent_service.app.infrastructure.memory.layered_memory import LayeredMemory, build_layered_stores
+from agent_service.app.infrastructure.chat_history.mongo_chat_history_repository import (
+    MongoChatHistoryRepository,
 )
 
 
 class LLMProvider(Provider):
     @provide(scope=Scope.APP, provides=LLMInterface)
     def llm(
-        self,
-        aiohttp_client_session: aiohttp.ClientSession,
-        settings: Settings,
-        logger: logging.Logger,
-        metrics_recorder: MetricsRecorder,
+            self,
+            openai_client: AsyncOpenAI,
+            settings: Settings,
+            logger: logging.Logger,
+            metrics_recorder: MetricsRecorder,
+            tracer: LlmTracer,
     ) -> LLMInterface:
-        return OpenRouterClient(
-            session=aiohttp_client_session,
-            settings=settings.openrouter_settings,
+        return OpenAIClient(
+            client=openai_client,
+            settings=settings.openai_settings,
             logger=logger,
             metrics=metrics_recorder,
+            tracer=tracer,
         )
 
 
 class MemoryProvider(Provider):
     @provide(scope=Scope.APP, provides=MemoryInterface)
     def memory(
-        self,
-        metrics_recorder: MetricsRecorder,
-        chat_history_repository: ChatHistoryRepository,
-        retrieve_cache: RetrieveCache,
-        settings: Settings,
-        logger: logging.Logger,
+            self,
+            openai_client: AsyncOpenAI,
+            metrics_recorder: MetricsRecorder,
+            chat_history_repository: ChatHistoryRepository,
+            retrieve_cache: RetrieveCache,
+            settings: Settings,
+            logger: logging.Logger,
+            tracer: LlmTracer,
     ) -> MemoryInterface:
-        rag_memory: MemoryInterface = RagMemory(
-            metrics_recorder=metrics_recorder,
-            chat_history_repository=chat_history_repository,
+        embeddings = build_embedding_service(
+            backend=settings.memory_settings.embedding_backend,
+            client=_embedding_client(openai_client, settings),
+            model=settings.openai_settings.embedding_model,
             logger=logger,
+        )
+        persist_dir = Path(settings.memory_settings.persist_dir)
+        stores = build_layered_stores(
+            embeddings=embeddings,
+            persist_dir=persist_dir,
+            metrics_recorder=metrics_recorder,
+        )
+        layered = LayeredMemory(
+            stores=stores,
+            embeddings=embeddings,
+            chat_history_repository=chat_history_repository,
+            metrics_recorder=metrics_recorder,
+            logger=logger,
+            max_retrieve_top_k=settings.memory_settings.max_retrieve_top_k,
+            tracer=tracer,
         )
         return CachedMemory(
-            inner=rag_memory,
+            inner=layered,
             retrieve_cache=retrieve_cache,
             ttl_sec=settings.redis_settings.retrieve_cache_ttl_sec,
+            cache_version=f"layers-{embeddings.name}",
             logger=logger,
             metrics_recorder=metrics_recorder,
         )
- 
+
+
+class MongoClientProvider(Provider):
+    @provide(scope=Scope.APP)
+    async def mongo_client(self, settings: Settings) -> AsyncIterable[AsyncIOMotorClient]:
+        client = AsyncIOMotorClient(
+            str(settings.mongo_settings.connection_string),
+            maxIdleTimeMS=settings.mongo_settings.server_selection_timeout_ms,
+        )
+        try:
+            yield client
+        finally:
+            client.close()
+
+
 class ChatHistoryRepositoryProvider(Provider):
     @provide(scope=Scope.APP, provides=ChatHistoryRepository)
-    def chat_history_repository(
-        self,
-        settings: Settings,
+    async def chat_history_repository(
+            self,
+            mongo_client: AsyncIOMotorClient,
+            settings: Settings,
     ) -> ChatHistoryRepository:
-        return TinyDbChatHistoryRepository(
-            db_path=settings.tinydb_settings.chat_history_path,
-            config=TinyDbChatHistoryConfig(
-                max_messages=settings.chat_history_settings.max_messages,
-            ),
+        collection = mongo_client[settings.mongo_settings.name]["chat_messages"]
+        await collection.create_index([("thread_id", 1), ("timestamp", 1), ("order", 1)])
+        return MongoChatHistoryRepository(
+            collection,
+            max_messages=settings.chat_history_settings.max_messages,
         )
 
 
-MemoryProviders = [LLMProvider(), MemoryProvider(), ChatHistoryRepositoryProvider()]
+def _embedding_client(openai_client: AsyncOpenAI, settings: Settings) -> AsyncOpenAI:
+    extra = (settings.openai_settings.embedding_base_url or "").strip()
+    if not extra:
+        return openai_client
+    return AsyncOpenAI(
+        api_key=(settings.openai_settings.embedding_api_key or settings.openai_settings.api_key),
+        base_url=extra.rstrip("/"),
+        timeout=settings.openai_settings.timeout_sec,
+    )
+
+
+MemoryProviders = [
+    LLMProvider(),
+    MemoryProvider(),
+    MongoClientProvider(),
+    ChatHistoryRepositoryProvider(),
+]

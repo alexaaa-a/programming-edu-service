@@ -8,10 +8,10 @@ from task_service.app.application.interfaces.db.sprint_db import SprintDBInterfa
 
 class GetBoardUseCase:
     def __init__(
-        self,
-        task_db: TaskDBInterface,
-        sprint_db: SprintDBInterface,
-        user_project_db: UserProjectDBInterface,
+            self,
+            task_db: TaskDBInterface,
+            sprint_db: SprintDBInterface,
+            user_project_db: UserProjectDBInterface,
     ) -> None:
         self.task_db = task_db
         self.sprint_db = sprint_db

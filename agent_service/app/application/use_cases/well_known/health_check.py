@@ -3,9 +3,8 @@ from agent_service.app.application.interfaces import HealthDependenciesChecker
 
 class HealthCheckUseCase:
     def __init__(
-        self,
-        *,
-        dependencies_checker: HealthDependenciesChecker,
+            self,
+            dependencies_checker: HealthDependenciesChecker,
     ) -> None:
         self._dependencies_checker = dependencies_checker
 

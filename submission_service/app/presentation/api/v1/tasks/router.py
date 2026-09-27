@@ -17,6 +17,31 @@ def _review_or_none(review) -> Review | None:
         score=review.score,
         feedback=review.feedback,
         suggestions=review.suggestions,
+        criteria=[
+            {
+                "id": item.id,
+                "text": item.text,
+                "passed": item.passed,
+                "note": item.note,
+            }
+            for item in (review.criteria or [])
+        ],
+        challenges=[
+            {
+                "text": item.text,
+                "severity": item.severity,
+            }
+            for item in (review.challenges or [])
+        ],
+        agent_path=[
+            {
+                "kind": item.kind,
+                "name": item.name,
+                "status": item.status,
+                "detail": item.detail,
+            }
+            for item in (review.agent_path or [])
+        ],
     )
 
 

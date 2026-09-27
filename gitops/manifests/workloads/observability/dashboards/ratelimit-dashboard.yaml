@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-ratelimit
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+data:
+  ratelimit-dashboard.json: |
+    {
+      "title": "Rate Limiter (Envoy)",
+      "uid": "envoy-ratelimit",
+      "schemaVersion": 36,
+      "version": 1,
+      "refresh": "30s",
+      "tags": ["ratelimit", "envoy", "istio"],
+      "panels": [
+        {
+          "id": 1,
+          "title": "Total Rate Limit Requests",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "sum(rate(ratelimit_service_rate_limit_total_hits[1m])) by (domain, key)",
+              "legendFormat": "{{domain}} / {{key}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Rate Limit Over Limit",
+          "type": "timeseries",
+          "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "sum(rate(ratelimit_service_rate_limit_over_limit[1m])) by (domain, key)",
+              "legendFormat": "{{domain}} / {{key}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 1 },
+                  { "color": "red", "value": 10 }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 3,
+          "title": "Near Limit Requests",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "sum(rate(ratelimit_service_rate_limit_near_limit[1m])) by (domain, key)",
+              "legendFormat": "{{domain}} / {{key}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Valkey (Redis) Hit/Miss",
+          "type": "timeseries",
+          "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "rate(ratelimit_service_total_hits[1m])",
+              "legendFormat": "hits",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "title": "429 Responses from Envoy",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
+          "targets": [
+            {
+              "expr": "sum(rate(envoy_http_downstream_rq_too_many_requests[1m])) by (envoy_cluster_name)",
+              "legendFormat": "{{envoy_cluster_name}}",
+              "refId": "A"
+            }
+          ]
+        }
+      ],
+      "templating": { "list": [] },
+      "time": { "from": "now-1h", "to": "now" },
+      "timepicker": {}
+    }

@@ -1,4 +1,8 @@
-from agent_service.app.application.dto.review import Review
+from agent_service.app.application.dto.review import (
+    ChallengeResult,
+    CriterionResult,
+    PathStepResult,
+    Review,
+)
 
-__all__ = ["Review"]
-
+__all__ = ["ChallengeResult", "CriterionResult", "PathStepResult", "Review"]

@@ -14,10 +14,10 @@ from task_service.app.config import Settings
 
 class UserProjectDB(UserProjectDBInterface):
     def __init__(
-        self,
-        client: AsyncIOMotorClient[Any],
-        settings: Settings,
-        logger: logging.Logger,
+            self,
+            client: AsyncIOMotorClient[Any],
+            settings: Settings,
+            logger: logging.Logger,
     ) -> None:
         self._client = client[settings.mongo_settings.name]
         self._settings = settings
@@ -25,7 +25,8 @@ class UserProjectDB(UserProjectDBInterface):
         self.logger = logger
 
     async def get_user_id_by_user_project_id(
-        self, user_project_id: int
+            self,
+            user_project_id: int
     ) -> int | None:
         try:
             doc = await self.db.find_one(
@@ -95,11 +96,11 @@ class UserProjectDB(UserProjectDBInterface):
             completed_at: datetime.datetime
     ) -> bool:
         try:
-            await self.db.update_one(
+            result = await self.db.update_one(
                 {"user_project_id": user_project_id},
                 {"$set": {"status": new_status, "completed_at": completed_at}}
             )
-            return True
+            return bool(getattr(result, "matched_count", 0))
 
         except Exception:
             self.logger.exception("Error when updating user project")
@@ -111,11 +112,11 @@ class UserProjectDB(UserProjectDBInterface):
             new_sprint_order: int
     ) -> bool:
         try:
-            await self.db.update_one(
+            result = await self.db.update_one(
                 {"user_project_id": user_project_id},
                 {"$set": {"current_sprint_order": new_sprint_order}}
             )
-            return True
+            return bool(getattr(result, "matched_count", 0))
 
         except Exception:
             self.logger.exception("Error when updating current sprint order")

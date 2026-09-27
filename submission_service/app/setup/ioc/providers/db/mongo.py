@@ -13,7 +13,6 @@ from submission_service.app.infrastructure.mongo.task_cache_db import TaskCacheD
 
 
 class MongoClientProvider(Provider):
-
     @provide(scope=Scope.APP)
     async def mongo_client(self, settings: Settings) -> AsyncIterable[AsyncIOMotorClient]:
         client = AsyncIOMotorClient(

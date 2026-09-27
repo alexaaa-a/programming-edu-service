@@ -6,7 +6,6 @@ from task_service.app.application.dto.sprint import SprintDTO
 
 
 class SprintDBInterface(Protocol):
-
     @abstractmethod
     async def create_sprint(self, sprint: SprintDTO) -> bool:
         raise NotImplementedError
@@ -24,6 +23,8 @@ class SprintDBInterface(Protocol):
             user_id: int,
             old_status: str,
             new_status: str,
-            completed_at: datetime.datetime | None = None
+            completed_at: datetime.datetime | None = None,
+            close_mode: str | None = None,
+            sprint_id: int | None = None,
     ) -> bool:
         raise NotImplementedError

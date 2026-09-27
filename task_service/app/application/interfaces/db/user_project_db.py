@@ -13,7 +13,8 @@ class UserProjectDBInterface(Protocol):
 
     @abstractmethod
     async def get_user_id_by_user_project_id(
-        self, user_project_id: int
+            self,
+            user_project_id: int
     ) -> int | None:
         raise NotImplementedError
 

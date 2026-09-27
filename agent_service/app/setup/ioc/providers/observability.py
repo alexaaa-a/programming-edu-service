@@ -3,7 +3,10 @@ import os
 
 from dishka import Provider, Scope, provide
 
+from agent_service.app.application.observability.llm_trace import LlmTracer
 from agent_service.app.application.observability.metrics_recorder import MetricsRecorder
+from agent_service.app.config import Settings
+from agent_service.app.infrastructure.observability.langfuse_tracer import build_llm_tracer
 from agent_service.app.infrastructure.observability.logging_metrics_recorder import LoggingMetricsRecorder
 from agent_service.app.application.observability.alerts import AlertingMetricsRecorder
 
@@ -33,4 +36,10 @@ class MetricsRecorderProvider(Provider):
         )
 
 
-ObservabilityProviders = [MetricsRecorderProvider()]
+class LlmTracerProvider(Provider):
+    @provide(scope=Scope.APP)
+    def llm_tracer(self, settings: Settings, logger: logging.Logger) -> LlmTracer:
+        return build_llm_tracer(settings.langfuse_settings, logger)
+
+
+ObservabilityProviders = [MetricsRecorderProvider(), LlmTracerProvider()]

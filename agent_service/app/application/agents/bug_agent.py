@@ -12,10 +12,9 @@ from agent_service.app.application.observability.tracing import ensure_trace_id
 
 class BugAgent(BaseAgent):
     def __init__(
-        self,
-        *,
-        llm: LLMInterface,
-        memory: MemoryInterface,
+            self,
+            llm: LLMInterface,
+            memory: MemoryInterface,
     ) -> None:
         super().__init__(llm=llm, memory=memory)
         self.skills = [
@@ -27,12 +26,16 @@ class BugAgent(BaseAgent):
         self._llm_generate = self.skills[1]
         self._parse_review = self.skills[2]
 
-    async def run(self, code: str) -> Review:
+    async def run(self, code: str, tool_facts: str = "") -> Review:
         trace_id = ensure_trace_id()
         logger = logging.getLogger("agent_service")
         logger.info("pipeline.trace trace_id=%s agent=Bug skill=BuildBugsPrompts start", trace_id)
         try:
-            system_prompt, user_prompt = await self._build_prompts.run(code=code, trace_id=trace_id)
+            system_prompt, user_prompt = await self._build_prompts.run(
+                code=code,
+                tool_facts=tool_facts,
+                trace_id=trace_id,
+            )
             logger.info("pipeline.trace trace_id=%s agent=Bug skill=BuildBugsPrompts end", trace_id)
             logger.info("pipeline.trace trace_id=%s agent=Bug skill=LLMGenerate start", trace_id)
             raw = await self._llm_generate.run(
@@ -52,4 +55,3 @@ class BugAgent(BaseAgent):
                 feedback="Failed to parse bug agent output as JSON; please retry.",
                 suggestions=[],
             )
-

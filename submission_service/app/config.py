@@ -45,8 +45,15 @@ class KafkaSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SUBMISSION_SERVICE_KAFKA_")
 
 
+class ReviewLoopSettings(BaseSettings):
+    max_rounds: int = 2
+
+    model_config = SettingsConfigDict(env_prefix="SUBMISSION_SERVICE_REVIEW_")
+
+
 class Settings(BaseSettings):
     mongo_settings: MongoSettings = MongoSettings()  # type: ignore[call-arg]
     token_settings: TokenSettings = TokenSettings()  # type: ignore[call-arg]
     logging_settings: LoggingSettings = LoggingSettings()
     kafka_settings: KafkaSettings = KafkaSettings()  # type: ignore[call-arg]
+    review_loop_settings: ReviewLoopSettings = ReviewLoopSettings()

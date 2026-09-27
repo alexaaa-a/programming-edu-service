@@ -1,0 +1,20 @@
+body {
+  font-family: Outfit, ui-sans-serif, system-ui, sans-serif;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+.font-mono {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.font-display,
+h1,
+h2 {
+  font-family: Fraunces, "Iowan Old Style", Palatino, serif;
+  font-optical-sizing: auto;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}

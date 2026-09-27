@@ -4,19 +4,18 @@ from user_service.app.application.interfaces.register.password_service import Pa
 
 class ChangePasswordUseCase:
     def __init__(
-        self,
-        user_repo: UserRepositoryInterface,
-        password_service: PasswordServiceInterface,
+            self,
+            user_repo: UserRepositoryInterface,
+            password_service: PasswordServiceInterface,
     ) -> None:
         self.user_repo = user_repo
         self.password_service = password_service
 
     async def __call__(
-        self,
-        user_id: int,
-        *,
-        current_password: str,
-        new_password: str,
+            self,
+            user_id: int,
+            current_password: str,
+            new_password: str,
     ) -> bool | str:
         user = await self.user_repo.get_user_by_id(user_id)
         if not user:

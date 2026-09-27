@@ -5,7 +5,6 @@ from task_service.app.application.dto.user import MetaUserDTO
 
 
 class MetaUserDBInterface(Protocol):
-
     @abstractmethod
     async def create_update_meta_user(self, user: MetaUserDTO) -> bool:
         raise NotImplementedError

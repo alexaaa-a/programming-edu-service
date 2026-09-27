@@ -1,22 +1,112 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { Award, Loader2, Sparkles } from "lucide-react";
-import { Button } from "../components/ui/button";
+import { ArrowRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { getSubmission } from "@/lib/api";
-import type { Submission } from "@/lib/types";
+import { getMe, getMyAdminRole, getMyTrajectory, getSubmission, getTaskSubmissions } from "@/lib/api";
+import { startBackgroundReviewPoll } from "@/lib/background-review";
+import { countedRounds, MAX_ROUNDS } from "@/lib/close-gate";
+import type { AdminRole, Submission, UserTrajectory } from "@/lib/types";
 import { useRequireAuth } from "../hooks/useRequireAuth";
+import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
+import { MarkdownBody } from "../components/MarkdownBody";
+import { PrimaryButton } from "../components/onboarding/Field";
+import { EmptyState } from "../components/EmptyState";
+import { ConfettiBurst } from "../components/ConfettiBurst";
+import { scoreOutOfTen, scorePercent } from "@/lib/score";
+import { shouldCelebrate } from "@/lib/streak";
+import { actionCta, actionTitle } from "@/lib/trajectory";
+import { TrajectoryMeters } from "../components/workspace/TrajectoryMeters";
+
+function ScoreRing({ value }: { value: number }) {
+  const pct = scorePercent(value);
+  const r = 52;
+  const c = 2 * Math.PI * r;
+  const offset = c - (pct / 100) * c;
+  return (
+    <div className="relative mx-auto size-36">
+      <svg className="size-36 -rotate-90" viewBox="0 0 120 120">
+        <circle cx="60" cy="60" r={r} fill="none" stroke="rgba(246,241,232,0.08)" strokeWidth="3" />
+        <circle
+          cx="60"
+          cy="60"
+          r={r}
+          fill="none"
+          stroke="#e4b48a"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={offset}
+          style={{ transition: "stroke-dashoffset 700ms cubic-bezier(0.22, 1, 0.36, 1)" }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="font-display text-5xl leading-none">{scoreOutOfTen(value)}</span>
+        <span className="text-[11px] text-muted-foreground">из 10</span>
+      </div>
+    </div>
+  );
+}
+
+function nextStepCopy(
+  score: number,
+  canRevise: boolean,
+): { title: string; body: string } {
+  const n = scoreOutOfTen(score);
+  if (n >= 8) {
+    return {
+      title: "Можно закрывать задачу",
+      body: "Команда довольна. Зафиксируй статус «Готово» и бери следующий узел пути.",
+    };
+  }
+  if (canRevise) {
+    if (n >= 5) {
+      return {
+        title: "Доработай и пришли снова",
+        body: "База есть, но ревью просит правок. Вернись в workspace, исправь замечания и отправь вторую попытку.",
+      };
+    }
+    return {
+      title: "Исправь и сдай повторно",
+      body: "Скор низкий. Разбери бриф и замечания, поправь код и отправь ещё раз — команда сверит прогресс.",
+    };
+  }
+  if (n >= 5) {
+    return {
+      title: "Лимит попыток исчерпан",
+      body: "Правки уже были. Открой чат с командой или закрой задачу и перейди к следующей.",
+    };
+  }
+  return {
+    title: "Лимит попыток исчерпан",
+    body: "Две сдачи уже использованы. Спроси Эмму или Джона в чате и возьми следующий узел пути.",
+  };
+}
 
 export default function SprintReport() {
   useRequireAuth();
   const { submissionId } = useParams<{ submissionId: string }>();
   const navigate = useNavigate();
   const [submission, setSubmission] = useState<Submission | null>(null);
+  const [attemptCount, setAttemptCount] = useState<number | null>(0);
   const [loading, setLoading] = useState(true);
+  const [userName, setUserName] = useState<string | undefined>();
+  const [adminRole, setAdminRole] = useState<AdminRole>("user");
+  const [celebrate, setCelebrate] = useState(false);
+  const [trajectory, setTrajectory] = useState<UserTrajectory | null>(null);
 
   const idNum = submissionId ? Number(submissionId) : NaN;
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [me, role] = await Promise.all([getMe(), getMyAdminRole()]);
+        setUserName(me.name);
+        setAdminRole(role.role);
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     if (Number.isNaN(idNum)) {
@@ -28,10 +118,27 @@ export default function SprintReport() {
       setLoading(true);
       try {
         const sub = await getSubmission(idNum);
-        if (!cancelled) setSubmission(sub);
+        if (!cancelled) {
+          setSubmission(sub);
+          try {
+            const all = await getTaskSubmissions(sub.task_id);
+            setAttemptCount(countedRounds(all));
+          } catch {
+            setAttemptCount(null);
+          }
+          try {
+            setTrajectory(await getMyTrajectory(sub.task_id));
+          } catch {
+            setTrajectory(null);
+          }
+          const passed = sub.review && scoreOutOfTen(sub.review.score) >= 8;
+          if (passed) {
+            setCelebrate(shouldCelebrate(`report:${sub.submission_id}`));
+          }
+        }
       } catch (e) {
         if (!cancelled) {
-          toast.error(e instanceof Error ? e.message : "Не удалось загрузить отчет");
+          toast.error(e instanceof Error ? e.message : "Не удалось загрузить отчёт");
           setSubmission(null);
         }
       } finally {
@@ -43,99 +150,313 @@ export default function SprintReport() {
     };
   }, [idNum]);
 
+  useEffect(() => {
+    if (!submission || submission.review) return;
+    if (submission.status !== "pending") return;
+    startBackgroundReviewPoll(submission.submission_id, submission.task_id);
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<{ submissionId: number }>).detail;
+      if (d?.submissionId !== submission.submission_id) return;
+      void getSubmission(submission.submission_id)
+        .then(async (sub) => {
+          setSubmission(sub);
+          try {
+            setTrajectory(await getMyTrajectory(sub.task_id));
+          } catch {
+            /* keep previous trajectory CTA */
+          }
+        })
+        .catch(() => {
+          /* keep pending UI */
+        });
+    };
+    window.addEventListener("submission-review-ready", handler);
+    return () => window.removeEventListener("submission-review-ready", handler);
+  }, [submission]);
+
   const review = submission?.review;
-  const scoreOutOf100 = review ? Math.max(0, Math.min(100, review.score * 10)) : null;
+  const canRevise =
+    review != null &&
+    (attemptCount == null || attemptCount < MAX_ROUNDS) &&
+    scoreOutOfTen(review.score) < 8;
+  const fallback = review ? nextStepCopy(review.score, canRevise) : null;
+  const next = trajectory
+    ? { title: actionTitle(trajectory.action), body: trajectory.reason }
+    : fallback;
+
+  const goPrimary = () => {
+    if (!submission) return;
+    if (trajectory?.action === "chat") {
+      navigate("/chat", { state: { taskId: submission.task_id } });
+      return;
+    }
+    if (trajectory?.action === "next_sprint" || trajectory?.action === "hold_sprint") {
+      navigate("/dashboard");
+      return;
+    }
+    navigate(`/task/${submission.task_id}`);
+  };
+
+  const primaryLabel = trajectory
+    ? actionCta(trajectory.action)
+    : canRevise
+      ? "Исправить и сдать снова"
+      : "К задаче";
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6">
-      <div className="w-full max-w-2xl">
-        <div className="flex justify-center mb-8">
-          <div className="bg-gradient-to-r from-[#FF9BB5] to-[#FFC2D4] text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-2">
-            <Award className="w-5 h-5" />
-            <span>Проверка готова 🎉</span>
+    <WorkspaceShell adminRole={adminRole} userName={userName}>
+      <ConfettiBurst fire={celebrate} />
+      <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 lg:py-10">
+        <p className="font-mono text-[11px] text-primary">Ревью команды</p>
+        <h1 className="mt-3 text-4xl leading-[1.1] sm:text-5xl">Отчёт по решению</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Не оценка личности — разбор кода. Дальше всегда есть один следующий шаг.
+        </p>
+
+        {loading && (
+          <div className="flex items-center gap-2 py-24 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
+            Собираем отчёт…
           </div>
-        </div>
+        )}
 
-        <div className="bg-white rounded-[20px] p-8 md:p-10 shadow-lg">
-          {loading && (
-            <div className="flex flex-col items-center justify-center py-16 gap-3 text-[#9E9E9E]">
-              <Loader2 className="w-8 h-8 animate-spin text-[#FF9BB5]" />
-              Загружаем ваш отчет…
+        {!loading && !submission && (
+          <EmptyState
+            title="Отчёт не найден"
+            body="Ссылка устарела или ревью ещё не создано. Вернись к задаче с доски."
+            action={
+              <PrimaryButton className="w-auto" onClick={() => navigate("/dashboard")}>
+                На дашборд
+              </PrimaryButton>
+            }
+          />
+        )}
+
+        {!loading && submission && !review && submission.status === "failed" && (
+          <div className="mt-10 rounded-[10px] border border-destructive/30 bg-destructive/10 p-8">
+            <p className="text-sm font-medium text-destructive">
+              Проверка не удалась
+            </p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {submission.reviewed_at
+                ? "Команда не смогла завершить ревью. Можно вернуться к задаче и отправить решение ещё раз — эта попытка уже учтена."
+                : "Технический сбой при проверке. Можно вернуться к задаче и отправить решение ещё раз — эта попытка не сжигает лимит."}
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate(`/task/${submission.task_id}`)}
+              className="mt-6 text-sm text-primary hover:underline"
+            >
+              Открыть workspace
+            </button>
+          </div>
+        )}
+
+        {!loading && submission && !review && submission.status !== "failed" && (
+          <div className="mt-10 rounded-[10px] border border-border bg-card p-8">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+              <p className="text-sm font-medium">Эмма ещё смотрит код</p>
             </div>
-          )}
+            <p className="text-sm text-muted-foreground">
+              Страница обновится, когда ревью доедет. Можно вернуться к задаче.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate(`/task/${submission.task_id}`)}
+              className="mt-6 text-sm text-primary hover:underline"
+            >
+              Открыть workspace
+            </button>
+          </div>
+        )}
 
-          {!loading && !submission && (
-            <p className="text-center text-[#9E9E9E]">Отчет не найден.</p>
-          )}
-
-          {!loading && submission && !review && (
-            <div className="text-center py-8">
-              <p className="text-[#9E9E9E] mb-6">
-                Ваше решение еще проверяется. На этой странице появится оценка после
-                завершения проверки.
-              </p>
-              <Button
-                type="button"
-                onClick={() => navigate("/dashboard")}
-                className="h-12 rounded-[20px] bg-gradient-to-r from-[#FF9BB5] to-[#FFC2D4] text-white px-8"
-              >
-                Вернуться на дашборд
-              </Button>
-            </div>
-          )}
-
-          {!loading && review && (
-            <>
-              <div className="text-center mb-8">
-                <div className="inline-flex items-center justify-center w-32 h-32 rounded-full bg-gradient-to-br from-[#FFE5EC] to-[#FFC2D4] mb-4">
-                  <div className="text-5xl text-[#FF9BB5]">{scoreOutOf100}</div>
-                </div>
-                <p className="text-[#9E9E9E]">из 100 баллов</p>
+        {!loading && review && (
+          <>
+            <section className="mt-10 grid gap-4 sm:grid-cols-[auto_1fr] sm:items-center rounded-[10px] border border-border bg-card p-8">
+              <ScoreRing value={review.score} />
+              <div>
+                <p className="font-mono text-[11px] text-muted-foreground">
+                  Следующий шаг
+                </p>
+                <h2 className="mt-2 text-xl font-medium tracking-tight">{next?.title}</h2>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{next?.body}</p>
               </div>
+            </section>
 
-              <div className="mb-8">
-                <h3 className="text-xl mb-4 text-center flex items-center justify-center gap-2">
-                  <Sparkles className="w-5 h-5 text-[#FF9BB5]" />
-                  Обратная связь
-                </h3>
-                <div className="text-[#4A4A4A] leading-relaxed text-center max-w-lg mx-auto prose prose-sm max-w-none prose-p:my-2 prose-strong:text-inherit">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {review.feedback}
-                  </ReactMarkdown>
-                </div>
+            {trajectory && (
+              <section className="mt-4 rounded-[10px] border border-border bg-card p-6">
+                <p className="mb-4 font-mono text-[11px] text-muted-foreground">
+                  Траектория
+                </p>
+                <TrajectoryMeters trajectory={trajectory} className="sm:grid sm:grid-cols-2 sm:gap-x-8 sm:gap-y-4 sm:space-y-0" />
+              </section>
+            )}
+
+            {(trajectory?.failed_criteria.length ?? 0) > 0 && (
+              <section className="mt-4 rounded-[10px] border border-border bg-card p-6">
+                <p className="font-mono text-[11px] text-muted-foreground">
+                  Что ещё не закрыто
+                </p>
+                <ul className="mt-3 space-y-1.5">
+                  {trajectory!.failed_criteria.map((item) => (
+                    <li key={item} className="text-sm leading-relaxed text-muted-foreground">
+                      ✗ {item}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            <section className="mt-8">
+              <h2 className="mb-3 text-sm font-medium">Обратная связь</h2>
+              <div className="rounded-[10px] border border-border bg-card p-6">
+                <MarkdownBody text={review.feedback} />
               </div>
+            </section>
 
-              {review.suggestions.length > 0 && (
-                <div className="mb-8">
-                  <h4 className="text-lg mb-4 text-center">Рекомендации</h4>
-                  <ul className="space-y-3">
-                    {review.suggestions.map((s, i) => (
-                      <li
-                        key={i}
-                        className="bg-[#FFF5F8] rounded-[20px] px-5 py-4 text-sm text-[#4A4A4A]"
+            {(review.criteria?.length ?? 0) > 0 && (
+              <section className="mt-8">
+                <h2 className="mb-3 text-sm font-medium">Критерии приёмки</h2>
+                <ul className="space-y-2">
+                  {review.criteria!.map((item) => (
+                    <li
+                      key={item.id}
+                      className="flex gap-3 rounded-xl border border-border bg-card px-4 py-3"
+                    >
+                      <span
+                        className={
+                          item.passed
+                            ? "mt-0.5 shrink-0 font-mono text-sm text-emerald-600"
+                            : "mt-0.5 shrink-0 font-mono text-sm text-rose-600"
+                        }
+                        aria-hidden
                       >
-                        <div className="prose prose-sm max-w-none prose-p:my-2 prose-strong:text-inherit">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {s}
-                          </ReactMarkdown>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+                        {item.passed ? "✓" : "✗"}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm leading-relaxed">{item.text}</p>
+                        {item.note ? (
+                          <p className="mt-1 text-xs text-muted-foreground">{item.note}</p>
+                        ) : null}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
 
-              <Button
+            {(review.challenges?.length ?? 0) > 0 && (
+              <section className="mt-8">
+                <h2 className="mb-3 text-sm font-medium">Независимая проверка</h2>
+                <ul className="space-y-2">
+                  {review.challenges!.map((item, index) => (
+                    <li
+                      key={`${item.text}-${index}`}
+                      className="flex gap-3 rounded-xl border border-border bg-card px-4 py-3"
+                    >
+                      <span className="mt-0.5 shrink-0 font-mono text-sm text-amber-700" aria-hidden>
+                        ✗
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm leading-relaxed">{item.text}</p>
+                        {item.severity ? (
+                          <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                            {item.severity === "high"
+                              ? "серьёзно"
+                              : item.severity === "low"
+                                ? "мягко"
+                                : "средне"}
+                          </p>
+                        ) : null}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {(review.agent_path?.length ?? 0) > 0 && (
+              <section className="mt-8">
+                <h2 className="mb-3 text-sm font-medium">Путь проверки</h2>
+                <ol className="space-y-2">
+                  {review.agent_path!.map((step, index) => (
+                    <li
+                      key={`${step.name}-${index}`}
+                      className="flex gap-3 rounded-xl border border-border bg-card px-4 py-3"
+                    >
+                      <span className="mt-0.5 shrink-0 font-mono text-xs text-muted-foreground">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm leading-relaxed">
+                          <span
+                            className={
+                              step.status === "ok"
+                                ? "text-emerald-600"
+                                : step.status === "error"
+                                  ? "text-rose-600"
+                                  : "text-amber-700"
+                            }
+                          >
+                            {step.status === "ok" ? "✓" : step.status === "error" ? "✗" : "!"}
+                          </span>{" "}
+                          {step.name}
+                        </p>
+                        {step.detail ? (
+                          <p className="mt-1 text-xs text-muted-foreground">{step.detail}</p>
+                        ) : null}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
+
+            {review.suggestions.length > 0 && (
+              <section className="mt-8">
+                <h2 className="mb-3 text-sm font-medium">Что поправить</h2>
+                <ul className="space-y-2">
+                  {review.suggestions.map((s, i) => (
+                    <li key={i} className="rounded-xl border border-border bg-card px-4 py-3">
+                      <MarkdownBody text={s} />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            <div className="mt-10 flex flex-wrap gap-3">
+              <PrimaryButton
+                type="button"
+                className="w-auto min-w-[180px]"
+                onClick={goPrimary}
+              >
+                {primaryLabel}
+                <ArrowRight className="size-4" />
+              </PrimaryButton>
+              <button
                 type="button"
                 onClick={() => navigate("/dashboard")}
-                className="w-full h-14 rounded-[20px] bg-gradient-to-r from-[#FF9BB5] to-[#FFC2D4] hover:from-[#FF8AAA] hover:to-[#FFB1C9] text-white text-lg shadow-md"
+                className="h-12 px-4 text-sm text-muted-foreground hover:text-foreground"
               >
-                Вернуться на дашборд
-              </Button>
-            </>
-          )}
-        </div>
+                На дашборд
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  navigate("/chat", {
+                    state: { taskId: submission!.task_id },
+                  })
+                }
+                className="h-12 px-4 text-sm text-muted-foreground hover:text-foreground"
+              >
+                Спросить команду
+              </button>
+            </div>
+          </>
+        )}
       </div>
-    </div>
+    </WorkspaceShell>
   );
 }

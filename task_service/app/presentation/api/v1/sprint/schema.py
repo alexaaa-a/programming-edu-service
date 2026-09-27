@@ -10,3 +10,4 @@ class Sprint(BaseModel):
     status: str
     started_at: datetime.datetime
     completed_at: datetime.datetime | None
+    close_mode: str | None = None

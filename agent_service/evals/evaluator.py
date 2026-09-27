@@ -1,17 +1,13 @@
-from __future__ import annotations
-
-import logging
 import json
-from dataclasses import asdict, dataclass
+import logging
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
-
-from agent_service.evals.metrics import (
-    count_keywords_found,
-    keyword_match_score,
-    response_length,
-    score_within_range,
-)
+from agent_service.evals.metrics import mention_groups_score, response_length, score_within_range
+from agent_service.app.application.use_cases import ReviewSubmissionUseCase
+from agent_service.app.config import Settings
+from agent_service.app.setup.ioc import create_container
+from agent_service.app.application.use_cases import ChatWithTeamUseCase
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,15 +16,8 @@ class ReviewEvalCase:
     submission_id: str
     task_description: str
     code: str
-    expected_keywords: list[str]
-    expected_score_range: list[int]
-
-
-@dataclass(frozen=True, slots=True)
-class ReviewCaseMetrics:
-    keyword_match_score: float
-    score_within_range: bool
-    response_length_chars: int
+    must_mention_any: list[list[str]] = field(default_factory=list)
+    expected_score_range: list[int] = field(default_factory=lambda: [1, 10])
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,17 +25,9 @@ class ChatEvalCase:
     id: str
     session_id: str
     user_message: str
-    expected_keywords: list[str]
-
-
-@dataclass(frozen=True, slots=True)
-class ChatCaseMetrics:
-    keyword_match_score: float
-    expected_keywords_total: int
-    expected_keywords_found: int
-    key_ideas_present: bool
-    response_length_chars: int
-    answer_non_empty: bool
+    must_mention_any: list[list[str]] = field(default_factory=list)
+    expected_speaker: str | None = None
+    expected_mode: str | None = None
 
 
 def load_dataset(path: str) -> dict[str, Any]:
@@ -54,35 +35,36 @@ def load_dataset(path: str) -> dict[str, Any]:
         return json.load(f)
 
 
+def _mention_groups(raw: Any) -> list[list[str]]:
+    if isinstance(raw, list) and raw and isinstance(raw[0], list):
+        return [[str(item) for item in group if str(item).strip()] for group in raw]
+    if isinstance(raw, list):
+        return [[str(item)] for item in raw if str(item).strip()]
+    return []
+
+
 def parse_review_cases(raw: dict[str, Any]) -> list[ReviewEvalCase]:
     tests = raw.get("review_tests", [])
     if not isinstance(tests, list):
         return []
-
     cases: list[ReviewEvalCase] = []
-    for i, t in enumerate(tests):
-        if not isinstance(t, dict):
+    for i, item in enumerate(tests):
+        if not isinstance(item, dict):
             continue
-        task_description = str(t.get("task_description", ""))
-        code = str(t.get("code", ""))
-        expected_keywords = [str(x) for x in t.get("expected_keywords", []) if isinstance(x, str)]
-        expected_score_range_raw = t.get("expected_score_range", [5, 7])
-        if not isinstance(expected_score_range_raw, list) or len(expected_score_range_raw) != 2:
-            expected_score_range = [5, 7]
+        range_raw = item.get("expected_score_range", [1, 10])
+        if not isinstance(range_raw, list) or len(range_raw) != 2:
+            score_range = [1, 10]
         else:
-            expected_score_range = [int(expected_score_range_raw[0]), int(expected_score_range_raw[1])]
-
-        submission_id = str(t.get("submission_id", t.get("id", f"sub_{i+1:03d}")))
-        case_id = str(t.get("id", f"case_{i+1:03d}"))
-
+            score_range = [int(range_raw[0]), int(range_raw[1])]
+        mentions = _mention_groups(item.get("must_mention_any") or item.get("expected_keywords") or [])
         cases.append(
             ReviewEvalCase(
-                id=case_id,
-                submission_id=submission_id,
-                task_description=task_description,
-                code=code,
-                expected_keywords=expected_keywords,
-                expected_score_range=expected_score_range,
+                id=str(item.get("id", f"case_{i + 1:03d}")),
+                submission_id=str(item.get("submission_id", item.get("id", f"sub_{i + 1:03d}"))),
+                task_description=str(item.get("task_description", "")),
+                code=str(item.get("code", "")),
+                must_mention_any=mentions,
+                expected_score_range=score_range,
             )
         )
     return cases
@@ -92,199 +74,185 @@ def parse_chat_cases(raw: dict[str, Any]) -> list[ChatEvalCase]:
     tests = raw.get("chat_tests", [])
     if not isinstance(tests, list):
         return []
-
     cases: list[ChatEvalCase] = []
-    for i, t in enumerate(tests):
-        if not isinstance(t, dict):
+    for i, item in enumerate(tests):
+        if not isinstance(item, dict):
             continue
-
-        user_message = str(t.get("user_message", ""))
-        expected_keywords = [str(x) for x in t.get("expected_keywords", []) if isinstance(x, str)]
-
-        case_id = str(t.get("id", f"chat_case_{i+1:03d}"))
-        session_id = str(t.get("session_id", f"chat_eval_session_{case_id}"))
-
+        mentions = _mention_groups(item.get("must_mention_any") or item.get("expected_keywords") or [])
+        speaker = item.get("expected_speaker")
+        mode = item.get("expected_mode")
         cases.append(
             ChatEvalCase(
-                id=case_id,
-                session_id=session_id,
-                user_message=user_message,
-                expected_keywords=expected_keywords,
+                id=str(item.get("id", f"chat_case_{i + 1:03d}")),
+                session_id=str(item.get("session_id", f"chat_eval_{i + 1:03d}")),
+                user_message=str(item.get("user_message", "")),
+                must_mention_any=mentions,
+                expected_speaker=str(speaker) if speaker else None,
+                expected_mode=str(mode) if mode else None,
             )
         )
-
     return cases
 
 
 class ReviewEvaluator:
-    def __init__(self, *, review_submission_use_case: Any, logger: logging.Logger | None = None) -> None:
+    def __init__(self, review_submission_use_case: Any, logger: logging.Logger | None = None) -> None:
         self._review_submission_use_case = review_submission_use_case
         self._logger = logger or logging.getLogger(__name__)
 
     async def evaluate(self, *, cases: list[ReviewEvalCase]) -> dict[str, Any]:
         per_case: list[dict[str, Any]] = []
-        keyword_scores: list[float] = []
-        within_range_flags: list[bool] = []
-        response_lengths: list[int] = []
+        mention_scores: list[float] = []
+        within: list[bool] = []
+        passed_flags: list[bool] = []
 
-        for c in cases:
-            self._logger.info("Evaluating case=%s submission=%s", c.id, c.submission_id)
-
-            submission_result = await self._review_submission_use_case(
-                submission_id=c.submission_id,
-                code=c.code,
-                task_description=c.task_description,
+        for case in cases:
+            self._logger.info("Evaluating case=%s submission=%s", case.id, case.submission_id)
+            result = await self._review_submission_use_case(
+                submission_id=case.submission_id,
+                code=case.code,
+                task_description=case.task_description,
             )
-            actual_review = submission_result.review
-
-            actual_text = actual_review.feedback + "\n" + "\n".join(actual_review.suggestions)
-
-            metrics = ReviewCaseMetrics(
-                keyword_match_score=keyword_match_score(
-                    answer=actual_text,
-                    expected_keywords=c.expected_keywords,
-                ),
-                score_within_range=score_within_range(
-                    score=actual_review.score,
-                    expected_score_range=c.expected_score_range,
-                ),
-                response_length_chars=response_length(actual_review.feedback, unit="chars"),
-            )
-
-            keyword_scores.append(metrics.keyword_match_score)
-            within_range_flags.append(metrics.score_within_range)
-            response_lengths.append(metrics.response_length_chars)
-
+            review = result.review
+            text = review.feedback + "\n" + "\n".join(review.suggestions)
+            mention, hits, total = mention_groups_score(text, case.must_mention_any)
+            in_range = score_within_range(review.score, case.expected_score_range)
+            path_names = [step.name for step in review.agent_path]
+            required = {"tools", "reviewer", "bug", "mentor"}
+            path_ok = required.issubset(set(path_names))
+            passed = in_range and mention >= 0.5 and path_ok
+            mention_scores.append(mention)
+            within.append(in_range)
+            passed_flags.append(passed)
             per_case.append(
                 {
-                    "id": c.id,
-                    "submission_id": c.submission_id,
-                    "task_description": c.task_description,
+                    "id": case.id,
+                    "submission_id": case.submission_id,
                     "expected": {
-                        "expected_keywords": c.expected_keywords,
-                        "expected_score_range": c.expected_score_range,
+                        "must_mention_any": case.must_mention_any,
+                        "expected_score_range": case.expected_score_range,
                     },
-                    "actual_review": asdict(actual_review),
-                    "metrics": asdict(metrics),
+                    "actual_review": asdict(review),
+                    "metrics": {
+                        "mention_groups_score": mention,
+                        "mention_groups_hits": hits,
+                        "mention_groups_total": total,
+                        "score_within_range": in_range,
+                        "path_ok": path_ok,
+                        "path_steps": path_names,
+                        "passed": passed,
+                        "response_length_chars": response_length(review.feedback),
+                    },
                 }
             )
 
-        total = len(cases)
-        aggregated = {
-            "total_cases": total,
-            "keyword_match_score_mean": (sum(keyword_scores) / total) if total else 0.0,
-            "score_within_range_rate": (sum(int(x) for x in within_range_flags) / total) if total else 0.0,
-            "response_length_chars_mean": (sum(response_lengths) / total) if total else 0.0,
-        }
-
+        total_cases = len(cases)
         return {
             "type": "review_eval",
-            "aggregated": aggregated,
+            "aggregated": {
+                "total_cases": total_cases,
+                "mention_groups_score_mean": (sum(mention_scores) / total_cases) if total_cases else 0.0,
+                "score_within_range_rate": (sum(within) / total_cases) if total_cases else 0.0,
+                "pass_rate": (sum(passed_flags) / total_cases) if total_cases else 0.0,
+            },
             "cases": per_case,
         }
 
 
 async def evaluate_review_from_dataset(
-    *,
-    dataset_path: str,
-    logger: logging.Logger | None = None,
+        dataset_path: str,
+        logger: logging.Logger | None = None,
 ) -> dict[str, Any]:
-    from agent_service.app.application.use_cases import ReviewSubmissionUseCase
-    from agent_service.app.config import Settings
-    from agent_service.app.setup.ioc import create_container
-
     log = logger or logging.getLogger(__name__)
-    raw = load_dataset(dataset_path)
-    cases = parse_review_cases(raw)
+    cases = parse_review_cases(load_dataset(dataset_path))
     if not cases:
         return {"type": "review_eval", "aggregated": {"total_cases": 0}, "cases": []}
 
     container = create_container(Settings())
     try:
-        review_submission_use_case = await container.get(ReviewSubmissionUseCase)
-        evaluator = ReviewEvaluator(
-            review_submission_use_case=review_submission_use_case,
-            logger=log,
-        )
-        return await evaluator.evaluate(cases=cases)
+        use_case = await container.get(ReviewSubmissionUseCase)
+        return await ReviewEvaluator(review_submission_use_case=use_case, logger=log).evaluate(cases=cases)
     finally:
         await container.close()
 
 
 class ChatEvaluator:
-    def __init__(self, *, chat_with_team_use_case: Any, logger: logging.Logger | None = None) -> None:
+    def __init__(self, chat_with_team_use_case: Any, logger: logging.Logger | None = None) -> None:
         self._chat_with_team_use_case = chat_with_team_use_case
         self._logger = logger or logging.getLogger(__name__)
 
-    async def evaluate(self, *, cases: list[ChatEvalCase]) -> dict[str, Any]:
+    async def evaluate(self, cases: list[ChatEvalCase]) -> dict[str, Any]:
         per_case: list[dict[str, Any]] = []
-        scores: list[float] = []
-        key_ideas_flags: list[bool] = []
-        response_lengths: list[int] = []
+        mention_scores: list[float] = []
+        speaker_hits: list[bool] = []
+        passed_flags: list[bool] = []
 
-        for c in cases:
-            self._logger.info("Chat evaluating case=%s session=%s", c.id, c.session_id)
-            chat_result = await self._chat_with_team_use_case(message=c.user_message, session_id=c.session_id)
-            answer = chat_result.answer
-
-            found, total = count_keywords_found(answer, c.expected_keywords, case_sensitive=False)
-            score = (found / total) if total else 0.0
-            key_ideas_present = bool(total) and found > 0
-
-            metrics = ChatCaseMetrics(
-                keyword_match_score=score,
-                expected_keywords_total=total,
-                expected_keywords_found=found,
-                key_ideas_present=key_ideas_present,
-                response_length_chars=response_length(answer, unit="chars"),
-                answer_non_empty=bool(answer and answer.strip()),
-            )
-
+        for case in cases:
+            self._logger.info("Chat evaluating case=%s session=%s", case.id, case.session_id)
+            result = await self._chat_with_team_use_case(message=case.user_message, session_id=case.session_id)
+            mention, hits, total = mention_groups_score(result.answer, case.must_mention_any)
+            speaker_ok = case.expected_speaker is None or str(result.speaker_id) == case.expected_speaker
+            mode_ok = case.expected_mode is None or str(result.mode) == case.expected_mode
+            path_names = [step.name for step in result.agent_path]
+            path_ok = "route" in path_names and "speaker" in path_names
+            if result.mode == "huddle":
+                path_ok = path_ok and "advisor" in path_names and bool(result.advisors)
+            passed = bool(result.answer.strip()) and mention >= 0.5 and speaker_ok and mode_ok and path_ok
+            mention_scores.append(mention)
+            speaker_hits.append(speaker_ok)
+            passed_flags.append(passed)
             per_case.append(
                 {
-                    "id": c.id,
-                    "session_id": c.session_id,
-                    "user_message": c.user_message,
-                    "expected": {"expected_keywords": c.expected_keywords},
-                    "actual_answer": answer,
-                    "metrics": asdict(metrics),
+                    "id": case.id,
+                    "session_id": case.session_id,
+                    "user_message": case.user_message,
+                    "expected": {
+                        "must_mention_any": case.must_mention_any,
+                        "expected_speaker": case.expected_speaker,
+                        "expected_mode": case.expected_mode,
+                    },
+                    "actual_answer": result.answer,
+                    "actual_speaker": result.speaker_id,
+                    "actual_mode": result.mode,
+                    "actual_advisors": list(result.advisors),
+                    "actual_path": path_names,
+                    "metrics": {
+                        "mention_groups_score": mention,
+                        "mention_groups_hits": hits,
+                        "mention_groups_total": total,
+                        "speaker_match": speaker_ok,
+                        "mode_match": mode_ok,
+                        "path_ok": path_ok,
+                        "passed": passed,
+                        "response_length_chars": response_length(result.answer),
+                    },
                 }
             )
 
-            scores.append(metrics.keyword_match_score)
-            key_ideas_flags.append(metrics.key_ideas_present)
-            response_lengths.append(metrics.response_length_chars)
-
         total_cases = len(cases)
-        aggregated = {
-            "total_cases": total_cases,
-            "keyword_match_score_mean": (sum(scores) / total_cases) if total_cases else 0.0,
-            "key_ideas_present_rate": (sum(int(x) for x in key_ideas_flags) / total_cases) if total_cases else 0.0,
-            "response_length_chars_mean": (sum(response_lengths) / total_cases) if total_cases else 0.0,
+        return {
+            "type": "chat_eval",
+            "aggregated": {
+                "total_cases": total_cases,
+                "mention_groups_score_mean": (sum(mention_scores) / total_cases) if total_cases else 0.0,
+                "speaker_match_rate": (sum(speaker_hits) / total_cases) if total_cases else 0.0,
+                "pass_rate": (sum(passed_flags) / total_cases) if total_cases else 0.0,
+            },
+            "cases": per_case,
         }
-
-        return {"type": "chat_eval", "aggregated": aggregated, "cases": per_case}
 
 
 async def evaluate_chat_from_dataset(
-    *,
-    dataset_path: str,
-    logger: logging.Logger | None = None,
+        dataset_path: str,
+        logger: logging.Logger | None = None,
 ) -> dict[str, Any]:
-    from agent_service.app.application.use_cases import ChatWithTeamUseCase
-    from agent_service.app.config import Settings
-    from agent_service.app.setup.ioc import create_container
-
     log = logger or logging.getLogger(__name__)
-    raw = load_dataset(dataset_path)
-    cases = parse_chat_cases(raw)
+    cases = parse_chat_cases(load_dataset(dataset_path))
     if not cases:
         return {"type": "chat_eval", "aggregated": {"total_cases": 0}, "cases": []}
 
     container = create_container(Settings())
     try:
-        chat_use_case = await container.get(ChatWithTeamUseCase)
-        evaluator = ChatEvaluator(chat_with_team_use_case=chat_use_case, logger=log)
-        return await evaluator.evaluate(cases=cases)
+        use_case = await container.get(ChatWithTeamUseCase)
+        return await ChatEvaluator(chat_with_team_use_case=use_case, logger=log).evaluate(cases=cases)
     finally:
         await container.close()

@@ -1,33 +1,32 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { ArrowLeft, KeyRound, Save, UserRound } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
 import { useRequireAuth } from "../hooks/useRequireAuth";
-import { getMe, updateProfile } from "@/lib/api";
-import type { UserShow } from "@/lib/types";
+import { getCareer, getMe, getMyAdminRole, updateProfile } from "@/lib/api";
+import type { AdminRole, Career, UserShow } from "@/lib/types";
+import { GRADE_LABEL, careerRights, formatRub } from "@/lib/career-rights";
+import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
+import { Field, PrimaryButton, selectClass } from "../components/onboarding/Field";
 
 const DIRECTION_OPTIONS = [
-  { value: "backend", label: "Бэкенд" },
-  { value: "frontend", label: "Фронтенд" },
-  { value: "fullstack", label: "Фулстек" },
+  { value: "backend", label: "Backend" },
+  { value: "frontend", label: "Frontend" },
+  { value: "fullstack", label: "Fullstack" },
 ] as const;
 
 const LEVEL_OPTIONS = [
-  { value: "junior", label: "Джуниор" },
-  { value: "junior-plus", label: "Джуниор+" },
+  { value: "junior", label: "Junior" },
+  { value: "junior-plus", label: "Junior+" },
 ] as const;
-
-const selectClass =
-  "h-12 w-full rounded-[20px] border-2 border-[#FFE5EC] bg-white px-5 text-sm focus:border-[#FF9BB5] focus:outline-none transition-colors";
 
 export default function Profile() {
   useRequireAuth();
   const navigate = useNavigate();
-
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [adminRole, setAdminRole] = useState<AdminRole>("user");
+  const [career, setCareer] = useState<Career | null>(null);
+  const [openLetter, setOpenLetter] = useState(0);
   const [form, setForm] = useState<UserShow>({
     username: "",
     name: "",
@@ -38,10 +37,17 @@ export default function Profile() {
   });
 
   useEffect(() => {
-    (async () => {
+    void (async () => {
       try {
-        const me = await getMe();
+        const [me, role, careerState] = await Promise.all([
+          getMe(),
+          getMyAdminRole(),
+          getCareer(),
+        ]);
         setForm(me);
+        setAdminRole(role.role);
+        setCareer(careerState);
+        setOpenLetter(Math.max(0, (careerState?.letters.length ?? 1) - 1));
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Не удалось загрузить профиль");
       } finally {
@@ -64,8 +70,7 @@ export default function Profile() {
         direction: form.direction || undefined,
         level: form.level || undefined,
       });
-      toast.success("Профиль сохранен");
-      navigate("/dashboard");
+      toast.success("Профиль сохранён");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Не удалось сохранить профиль");
     } finally {
@@ -74,112 +79,132 @@ export default function Profile() {
   };
 
   return (
-    <div className="min-h-screen p-6 md:p-12">
-      <div className="max-w-3xl mx-auto">
-        <div className="mb-6">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => navigate("/dashboard")}
-            className="rounded-[20px] border-2 border-[#FFE5EC] hover:bg-[#FFE5EC]"
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Назад
-          </Button>
-        </div>
+    <WorkspaceShell adminRole={adminRole} userName={form.name || undefined}>
+      <div className="mx-auto max-w-xl px-5 py-8 sm:px-8 lg:py-10">
+        <p className="font-mono text-[11px] text-primary">Аккаунт</p>
+        <h1 className="mt-3 text-4xl leading-[1.1]">Профиль</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Ник и почта фиксированы. Направление можно сменить — спринт останется текущий.
+        </p>
 
-        <div className="bg-white rounded-[20px] p-8 md:p-10 shadow-lg">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-12 h-12 rounded-full bg-gradient-to-r from-[#FF9BB5] to-[#FFC2D4] flex items-center justify-center">
-              <UserRound className="w-6 h-6 text-white" />
+        {loading ? (
+          <p className="py-24 text-sm text-muted-foreground">Загружаем профиль…</p>
+        ) : (
+          <form onSubmit={handleSave} className="mt-10 space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field
+                label="Имя"
+                value={form.name}
+                onChange={(e) => onChange("name", e.target.value)}
+                required
+              />
+              <Field
+                label="Фамилия"
+                value={form.surname}
+                onChange={(e) => onChange("surname", e.target.value)}
+                required
+              />
             </div>
-            <h1 className="text-2xl">Профиль пользователя</h1>
-          </div>
-
-          {loading ? (
-            <p className="text-[#9E9E9E] py-8">Загружаем профиль…</p>
-          ) : (
-            <form onSubmit={handleSave} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input
-                  value={form.name}
-                  onChange={(e) => onChange("name", e.target.value)}
-                  placeholder="Имя"
-                  className="h-12 rounded-[20px] border-2 border-[#FFE5EC] bg-white px-5"
-                  required
-                />
-                <Input
-                  value={form.surname}
-                  onChange={(e) => onChange("surname", e.target.value)}
-                  placeholder="Фамилия"
-                  className="h-12 rounded-[20px] border-2 border-[#FFE5EC] bg-white px-5"
-                  required
-                />
-              </div>
-
-              <Input
-                value={form.username}
-                placeholder="Никнейм"
-                className="h-12 rounded-[20px] border-2 border-[#FFE5EC] bg-[#FAFAFA] px-5 text-[#9E9E9E]"
-                disabled
-              />
-
-              <Input
-                type="email"
-                value={form.email}
-                placeholder="Почта"
-                className="h-12 rounded-[20px] border-2 border-[#FFE5EC] bg-[#FAFAFA] px-5 text-[#9E9E9E]"
-                disabled
-              />
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field label="Никнейм" value={form.username} disabled />
+            <Field label="Почта" type="email" value={form.email} disabled />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label className="block space-y-2">
+                <span className="text-xs font-medium tracking-wide text-muted-foreground">
+                  Направление
+                </span>
                 <select
                   value={form.direction ?? ""}
                   onChange={(e) => onChange("direction", e.target.value)}
                   className={selectClass}
                 >
-                  <option value="">Выберите направление</option>
+                  <option value="">Не выбрано</option>
                   {DIRECTION_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
                   ))}
                 </select>
+              </label>
+              <label className="block space-y-2">
+                <span className="text-xs font-medium tracking-wide text-muted-foreground">
+                  Уровень
+                </span>
                 <select
                   value={form.level ?? ""}
                   onChange={(e) => onChange("level", e.target.value)}
                   className={selectClass}
                 >
-                  <option value="">Выберите уровень</option>
+                  <option value="">Не выбран</option>
                   {LEVEL_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
                   ))}
                 </select>
-              </div>
-
-              <Button
-                type="submit"
-                disabled={saving}
-                className="h-12 px-6 rounded-[20px] bg-gradient-to-r from-[#FF9BB5] to-[#FFC2D4] text-white"
-              >
-                <Save className="w-4 h-4 mr-2" />
-                {saving ? "Сохраняем…" : "Сохранить изменения"}
-              </Button>
-              <Button
+              </label>
+            </div>
+            <div className="flex flex-wrap gap-3 pt-4">
+              <PrimaryButton type="submit" disabled={saving} className="w-auto min-w-[180px]">
+                {saving ? "Сохраняем…" : "Сохранить"}
+              </PrimaryButton>
+              <button
                 type="button"
-                variant="outline"
                 onClick={() => navigate("/profile/password")}
-                className="h-12 px-6 rounded-[20px] border-2 border-[#FFE5EC] hover:bg-[#FFE5EC] ml-3"
+                className="h-12 px-4 text-sm text-muted-foreground hover:text-foreground"
               >
-                <KeyRound className="w-4 h-4 mr-2" />
                 Сменить пароль
-              </Button>
-            </form>
-          )}
-        </div>
+              </button>
+            </div>
+          </form>
+        )}
+
+        {!loading && careerRights(career?.grade).reopenLetter && (career?.letters.length ?? 0) > 0 && (
+          <section className="mt-14 border-t border-border pt-10">
+            <p className="font-mono text-[11px] text-primary">Performance review</p>
+            <h2 className="mt-3 text-3xl">Письма Джона</h2>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {career!.letters.map((letter, index) => (
+                <button
+                  key={`${letter.at}-${index}`}
+                  type="button"
+                  onClick={() => setOpenLetter(index)}
+                  className={
+                    openLetter === index
+                      ? "rounded-full border border-primary/40 px-3 py-1 text-xs text-primary"
+                      : "rounded-full border border-border px-3 py-1 text-xs text-muted-foreground"
+                  }
+                >
+                  {new Date(letter.at).toLocaleDateString("ru-RU")}
+                </button>
+              ))}
+            </div>
+            {career!.letters[openLetter] && (
+              <div className="mt-6">
+                <p className="font-display text-3xl leading-none">
+                  {formatRub(career!.letters[openLetter].old_salary)}
+                  <span className="mx-3 text-muted-foreground">→</span>
+                  {formatRub(career!.letters[openLetter].new_salary)}
+                </p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {GRADE_LABEL[career!.letters[openLetter].old_grade] ?? career!.letters[openLetter].old_grade}
+                  {" → "}
+                  {GRADE_LABEL[career!.letters[openLetter].new_grade] ?? career!.letters[openLetter].new_grade}
+                </p>
+                <ul className="mt-6 space-y-2">
+                  {career!.letters[openLetter].facts.map((fact) => (
+                    <li key={fact} className="text-sm leading-relaxed">
+                      {fact}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-6 text-sm leading-relaxed text-muted-foreground">
+                  {career!.letters[openLetter].text}
+                </p>
+              </div>
+            )}
+          </section>
+        )}
       </div>
-    </div>
+    </WorkspaceShell>
   );
 }

@@ -7,10 +7,10 @@ from agent_service.app.application.dto.rag import RetrievedDocument
 class MemoryInterface(Protocol):
     @abstractmethod
     async def retrieve(
-        self,
-        query: str,
-        k: int,
-        types: set[str] | None = None,
+            self,
+            query: str,
+            k: int,
+            types: set[str] | None = None,
     ) -> list[RetrievedDocument]:
         raise NotImplementedError
 
@@ -24,9 +24,18 @@ class MemoryInterface(Protocol):
 
     @abstractmethod
     async def append_chat_message(
-        self,
-        session_id: str,
-        role: str,
-        content: str,
+            self,
+            session_id: str,
+            role: str,
+            content: str,
+            turn_id: str | None = None,
     ) -> None:
         raise NotImplementedError
+
+    async def rollback_last_chat_message(
+            self,
+            session_id: str,
+            role: str,
+            content: str,
+    ) -> None:
+        return None

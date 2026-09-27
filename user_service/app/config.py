@@ -28,6 +28,7 @@ class RedisSettings(BaseSettings):
     host: str
     port: int
     db: int
+    password: str
 
     model_config = SettingsConfigDict(env_prefix="USER_SERVICE_REDIS_")
 

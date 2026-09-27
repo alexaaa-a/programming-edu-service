@@ -51,11 +51,10 @@ class UserEventProducer:
             self._logger.exception("Failed to produce user event")
 
     async def produce_user_registered(
-        self,
-        *,
-        user_id: int,
-        direction: str | None = None,
-        level: str | None = None,
+            self,
+            user_id: int,
+            direction: str | None = None,
+            level: str | None = None,
     ) -> None:
         payload = {
             "user_id": user_id,
@@ -66,11 +65,10 @@ class UserEventProducer:
         await self._send_async(topic, payload)
 
     async def produce_user_profile_updated(
-        self,
-        *,
-        user_id: int,
-        direction: str | None = None,
-        level: str | None = None,
+            self,
+            user_id: int,
+            direction: str | None = None,
+            level: str | None = None,
     ) -> None:
         payload = {
             "user_id": user_id,

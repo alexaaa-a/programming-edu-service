@@ -5,7 +5,6 @@ from submission_service.app.application.dto.submission import SubmissionDTO, Rev
 
 
 class SubmissionsDBInterface(Protocol):
-
     @abstractmethod
     async def create_submission(self, submission: SubmissionDTO) -> bool:
         raise NotImplementedError
@@ -29,4 +28,17 @@ class SubmissionsDBInterface(Protocol):
             review: ReviewDTO | None,
             status: str,
     ) -> bool:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def mark_submission_status(
+            self,
+            submission_id: int,
+            status: str,
+            from_status: str | None = None,
+    ) -> bool:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def delete_submission(self, submission_id: int) -> bool:
         raise NotImplementedError

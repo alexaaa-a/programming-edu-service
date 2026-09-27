@@ -3,7 +3,6 @@ from typing import Protocol
 
 
 class PasswordServiceInterface(Protocol):
-
     @abstractmethod
     def hash_password(self, password: str) -> str:
         raise NotImplementedError

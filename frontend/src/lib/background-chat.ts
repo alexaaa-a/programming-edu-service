@@ -1,87 +1,79 @@
 import { toast } from "sonner";
 import { chatMessage } from "./api";
-import { setChatSessionId } from "./auth-storage";
 import { appNavigate } from "./app-navigate";
-import { pickResponder } from "./chat-persona";
-
-export interface ChatMessageRow {
-  id: string;
-  text: string;
-  isUser: boolean;
-  time: string;
-  sender?: string;
-}
+import { formatSender, pickResponder } from "./chat-persona";
 
 const inFlightByScope = new Map<string, boolean>();
-
-function loadMessages(historyKey: string): ChatMessageRow[] {
-  try {
-    const raw = localStorage.getItem(historyKey);
-    if (!raw) return [];
-    const p = JSON.parse(raw) as ChatMessageRow[];
-    return Array.isArray(p) ? p : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveMessages(historyKey: string, messages: ChatMessageRow[]): void {
-  localStorage.setItem(historyKey, JSON.stringify(messages));
-}
 
 export function isChatSendInFlightForScope(chatScope: string): boolean {
   return inFlightByScope.get(chatScope) ?? false;
 }
 
 export function startBackgroundChatSend(params: {
-  historyKey: string;
   chatScope: string;
   sessionId: string;
   userText: string;
   taskTitleForApi?: string;
+  taskId?: number;
   responderIndex: number;
+  soloOnly?: boolean;
+  emmaBriefing?: string;
   chatRestore?: { taskId: number; taskTitle: string } | null;
+  turnId?: string;
 }): void {
   const {
-    historyKey,
     chatScope,
     sessionId,
     userText,
     taskTitleForApi,
+    taskId,
     responderIndex,
+    soloOnly,
+    emmaBriefing,
     chatRestore,
+    turnId,
   } = params;
   if (inFlightByScope.get(chatScope)) return;
   inFlightByScope.set(chatScope, true);
 
+  const resolvedTurnId = turnId?.trim() || crypto.randomUUID();
+
   void (async () => {
     try {
-      const res = await chatMessage(
-        sessionId,
-        userText,
-        taskTitleForApi ? { task_title: taskTitleForApi } : undefined,
-      );
-      setChatSessionId(chatScope, res.session_id);
+      const context: {
+        task_title?: string;
+        task_id?: number;
+        turn_id?: string;
+        solo_only?: boolean;
+        emma_briefing?: string;
+      } = { turn_id: resolvedTurnId };
+      if (soloOnly) context.solo_only = true;
+      if (emmaBriefing) context.emma_briefing = emmaBriefing;
+      if (taskTitleForApi) context.task_title = taskTitleForApi;
+      if (taskId != null) context.task_id = taskId;
+      const res = await chatMessage(sessionId, userText, context);
 
-      const responder = pickResponder(userText, responderIndex);
+      const responder =
+        res.speaker && res.role
+          ? { name: res.speaker, role: res.role }
+          : pickResponder(userText, responderIndex);
       const replyTime = new Date().toLocaleTimeString(undefined, {
-        hour: "numeric",
+        hour: "2-digit",
         minute: "2-digit",
       });
-      const assistantMsg: ChatMessageRow = {
-        id: crypto.randomUUID(),
-        text: res.answer,
-        isUser: false,
-        time: replyTime,
-        sender: `${responder.name} (${responder.role})`,
-      };
-
-      const merged = loadMessages(historyKey);
-      merged.push(assistantMsg);
-      saveMessages(historyKey, merged);
-
       window.dispatchEvent(
-        new CustomEvent("chat-background-complete", { detail: { historyKey } }),
+        new CustomEvent("chat-background-complete", {
+          detail: {
+            chatScope,
+            assistant: {
+              id: `turn:${resolvedTurnId}`,
+              text: res.answer,
+              isUser: false,
+              time: replyTime,
+              sender: formatSender(responder),
+            },
+          },
+        }),
       );
 
       const isTaskChat = chatRestore?.taskId != null;
@@ -89,12 +81,19 @@ export function startBackgroundChatSend(params: {
         ? ` «${chatRestore.taskTitle.trim()}»`
         : "";
 
+      const huddle = res.mode === "huddle";
       toast.success(
-        isTaskChat ? `Ответ в чате по задаче${taskLabel} готов` : "Ответ в общем чате готов",
+        huddle
+          ? `${responder.name} ответил после совещания`
+          : isTaskChat
+            ? `Ответ в чате по задаче${taskLabel} готов`
+            : `${responder.name} ответил`,
         {
-          description: isTaskChat
-            ? "Сообщение сохранено в чате этой задачи. Можете открыть чат по кнопке ниже или вернуться к задаче."
-            : "Сообщение сохранено в общем командном чате. Откройте чат по кнопке ниже.",
+          description: huddle
+            ? "Эмма и Сара скинули заметки, итоговый ответ — от того, кто ведёт."
+            : isTaskChat
+              ? "Сообщение сохранено в чате этой задачи. Можете открыть чат по кнопке ниже или вернуться к задаче."
+              : "Сообщение сохранено в общем командном чате. Откройте чат по кнопке ниже.",
           duration: 12_000,
           action: {
             label: isTaskChat ? "К чату задачи" : "Открыть общий чат",
@@ -116,7 +115,9 @@ export function startBackgroundChatSend(params: {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Не удалось отправить сообщение");
       window.dispatchEvent(
-        new CustomEvent("chat-background-complete", { detail: { historyKey } }),
+        new CustomEvent("chat-background-complete", {
+          detail: { chatScope, failed: true },
+        }),
       );
     } finally {
       inFlightByScope.delete(chatScope);

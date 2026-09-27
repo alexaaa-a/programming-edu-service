@@ -43,7 +43,7 @@ class SprintDB(SprintDBInterface):
             data = dict(doc)
             data.pop("_id", None)
 
-            return SprintDTO(**data)
+            return SprintDTO.from_document(data)
 
         except Exception:
             self.logger.exception("Failed to get current sprint")
@@ -54,20 +54,24 @@ class SprintDB(SprintDBInterface):
             user_id: int,
             old_status: str,
             new_status: str,
-            completed_at: datetime.datetime | None = None
+            completed_at: datetime.datetime | None = None,
+            close_mode: str | None = None,
+            sprint_id: int | None = None,
     ) -> bool:
         try:
-            if not completed_at:
-                await self.db.update_one(
-                    {"user_id": user_id, "status": old_status},
-                    {"$set": {"status": new_status}},
-                )
-            else:
-                await self.db.update_one(
-                    {"user_id": user_id, "status": old_status},
-                    {"$set": {"status": new_status, "completed_at": completed_at}},
-                )
-            return True
+            payload: dict[str, Any] = {"status": new_status}
+            update_doc: dict[str, Any] = {"$set": payload}
+            if completed_at is not None:
+                payload["completed_at"] = completed_at
+            elif new_status == "active":
+                update_doc["$unset"] = {"completed_at": "", "close_mode": ""}
+            if close_mode is not None:
+                payload["close_mode"] = close_mode
+            query: dict[str, Any] = {"user_id": user_id, "status": old_status}
+            if sprint_id is not None:
+                query["sprint_id"] = sprint_id
+            result = await self.db.update_one(query, update_doc)
+            return result.matched_count > 0
 
         except Exception:
             self.logger.exception("Failed to update sprint")

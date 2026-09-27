@@ -5,10 +5,10 @@ from user_service.app.application.interfaces.kafka import UserEventProducerInter
 
 class HealthUseCase:
     def __init__(
-        self,
-        mongo_db: MongoDBInterface,
-        cache: CacheInterface,
-        kafka: UserEventProducerInterface,
+            self,
+            mongo_db: MongoDBInterface,
+            cache: CacheInterface,
+            kafka: UserEventProducerInterface,
     ) -> None:
         self.mongo_db = mongo_db
         self.cache = cache

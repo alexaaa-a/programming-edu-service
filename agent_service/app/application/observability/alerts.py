@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 
 from agent_service.app.application.observability.metrics_recorder import MetricsRecorder
@@ -8,13 +6,12 @@ from agent_service.app.application.observability.tracing import get_trace_id
 
 class AlertingMetricsRecorder(MetricsRecorder):
     def __init__(
-        self,
-        *,
-        inner: MetricsRecorder,
-        logger: logging.Logger,
-        error_count_threshold: int,
-        latency_seconds_threshold: float,
-        enabled: bool = True,
+            self,
+            inner: MetricsRecorder,
+            logger: logging.Logger,
+            error_count_threshold: int,
+            latency_seconds_threshold: float,
+            enabled: bool = True,
     ) -> None:
         self._inner = inner
         self._logger = logger
@@ -31,10 +28,10 @@ class AlertingMetricsRecorder(MetricsRecorder):
         return (component, operation)
 
     def increment(
-        self,
-        metric_name: str,
-        value: int = 1,
-        tags: dict[str, str] | None = None,
+            self,
+            metric_name: str,
+            value: int = 1,
+            tags: dict[str, str] | None = None,
     ) -> None:
         self._inner.increment(metric_name, value=value, tags=tags)
         if not self._enabled:
@@ -60,10 +57,10 @@ class AlertingMetricsRecorder(MetricsRecorder):
             )
 
     def record_duration_seconds(
-        self,
-        metric_name: str,
-        duration_seconds: float,
-        tags: dict[str, str] | None = None,
+            self,
+            metric_name: str,
+            duration_seconds: float,
+            tags: dict[str, str] | None = None,
     ) -> None:
         self._inner.record_duration_seconds(metric_name, duration_seconds=duration_seconds, tags=tags)
         if not self._enabled:

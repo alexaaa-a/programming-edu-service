@@ -1,34 +1,34 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
-import { ArrowLeft, Shield, UserPlus, Trash2, PlusSquare } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
 import { useRequireAuth } from "../hooks/useRequireAuth";
 import {
   addAdmin,
   createProjectTemplate,
   getAdmins,
+  getMe,
   getMyAdminRole,
   removeAdmin,
 } from "@/lib/api";
 import type { AdminRole, AdminUser, CreateProjectTemplatePayload } from "@/lib/types";
+import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
+import { EmptyState } from "../components/EmptyState";
+import { Field, PrimaryButton, fieldClass, selectClass } from "../components/onboarding/Field";
+import { cn } from "../components/ui/utils";
 
 const sampleSprints = [
   {
     order: 1,
     title: "Спринт 1",
-    tasks: [
-      { title: "Настроить проект", description: "Создать базовую структуру и README" },
-    ],
+    tasks: [{ title: "Настроить проект", description: "Создать базовую структуру и README" }],
   },
 ];
 
 export default function AdminPanel() {
   useRequireAuth();
-  const navigate = useNavigate();
 
   const [role, setRole] = useState<AdminRole>("user");
+  const [userName, setUserName] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
 
   const [admins, setAdmins] = useState<AdminUser[]>([]);
@@ -39,9 +39,7 @@ export default function AdminPanel() {
   const [description, setDescription] = useState("");
   const [direction, setDirection] = useState("backend");
   const [level, setLevel] = useState("junior");
-  const [sprintsJson, setSprintsJson] = useState(
-    JSON.stringify(sampleSprints, null, 2),
-  );
+  const [sprintsJson, setSprintsJson] = useState(JSON.stringify(sampleSprints, null, 2));
   const [templateBusy, setTemplateBusy] = useState(false);
 
   const canManageAdmins = role === "superadmin";
@@ -58,18 +56,18 @@ export default function AdminPanel() {
   }, [sprintsJson]);
 
   const loadAdmins = async () => {
-    if (!canManageAdmins) return;
     const data = await getAdmins();
     setAdmins(data);
   };
 
   useEffect(() => {
-    (async () => {
+    void (async () => {
       try {
-        const meRole = await getMyAdminRole();
+        const [me, meRole] = await Promise.all([getMe(), getMyAdminRole()]);
+        setUserName(me.name);
         setRole(meRole.role);
         if (meRole.role === "superadmin") {
-          await loadAdmins();
+          setAdmins(await getAdmins());
         }
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Не удалось загрузить доступы");
@@ -77,7 +75,7 @@ export default function AdminPanel() {
         setLoading(false);
       }
     })();
-  }, [canManageAdmins]);
+  }, []);
 
   const handleAddAdmin = async () => {
     const id = Number(newAdminId);
@@ -102,7 +100,7 @@ export default function AdminPanel() {
     setAdminBusy(true);
     try {
       await removeAdmin(userId);
-      toast.success("Админ удален");
+      toast.success("Админ удалён");
       await loadAdmins();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Не удалось удалить админа");
@@ -149,164 +147,157 @@ export default function AdminPanel() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center text-[#9E9E9E]">
-        Загружаем админ-панель…
-      </div>
-    );
-  }
-
-  if (!canCreateTemplates) {
-    return (
-      <div className="min-h-screen p-6 md:p-12">
-        <div className="max-w-3xl mx-auto">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => navigate("/dashboard")}
-            className="mb-6 rounded-[20px] border-2 border-[#FFE5EC] hover:bg-[#FFE5EC]"
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Назад
-          </Button>
-          <div className="bg-white rounded-[20px] p-8 shadow-lg text-center">
-            <Shield className="w-10 h-10 text-[#FF9BB5] mx-auto mb-3" />
-            <h2 className="text-2xl mb-2">Нет доступа</h2>
-            <p className="text-[#9E9E9E]">
-              Админ-панель доступна только пользователям с ролью admin или superadmin.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen p-6 md:p-12">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => navigate("/dashboard")}
-            className="rounded-[20px] border-2 border-[#FFE5EC] hover:bg-[#FFE5EC]"
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Назад
-          </Button>
-          <div className="px-4 py-2 rounded-full bg-[#FFF5F8] text-[#FF9BB5] text-sm">
-            Ваша роль: {role}
-          </div>
-        </div>
+    <WorkspaceShell adminRole={role} userName={userName}>
+      <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8 lg:py-10">
+        <p className="font-mono text-[11px] text-primary">Служебное</p>
+        <h1 className="mt-3 text-4xl leading-[1.1]">Админка</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Шаблоны спринтов и роли. Не учебный кабинет — внутренняя панель Desk.
+        </p>
 
-        <div className="bg-white rounded-[20px] p-8 shadow-lg mb-8">
-          <div className="flex items-center gap-2 mb-6">
-            <PlusSquare className="w-5 h-5 text-[#FF9BB5]" />
-            <h2 className="text-2xl">Создание шаблона задач</h2>
-          </div>
+        {loading && <p className="py-24 text-sm text-muted-foreground">Проверяем доступ…</p>}
 
-          <div className="space-y-4">
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Название шаблона"
-              className="h-12 rounded-[20px] border-2 border-[#FFE5EC] bg-white px-5"
-            />
-            <Input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Описание проекта"
-              className="h-12 rounded-[20px] border-2 border-[#FFE5EC] bg-white px-5"
-            />
+        {!loading && !canCreateTemplates && (
+          <EmptyState
+            kicker="403"
+            title="Нет доступа"
+            body="Панель только для admin и superadmin. Если это ошибка — попроси суперadmin выдать роль."
+          />
+        )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input
-                value={direction}
-                onChange={(e) => setDirection(e.target.value)}
-                placeholder="direction (например backend)"
-                className="h-12 rounded-[20px] border-2 border-[#FFE5EC] bg-white px-5"
-              />
-              <Input
-                value={level}
-                onChange={(e) => setLevel(e.target.value)}
-                placeholder="level (например junior)"
-                className="h-12 rounded-[20px] border-2 border-[#FFE5EC] bg-white px-5"
-              />
-            </div>
+        {!loading && canCreateTemplates && (
+          <>
+            <p className="mt-6 font-mono text-[11px] text-muted-foreground">
+              Роль: {role}
+            </p>
 
-            <textarea
-              value={sprintsJson}
-              onChange={(e) => setSprintsJson(e.target.value)}
-              className="w-full min-h-[220px] rounded-[20px] border-2 border-[#FFE5EC] bg-white px-5 py-4 focus:outline-none focus:border-[#FF9BB5] transition-colors"
-            />
-            {sprintsPreviewError && (
-              <p className="text-sm text-red-500">{sprintsPreviewError}</p>
-            )}
-
-            <Button
-              type="button"
-              disabled={templateBusy || Boolean(sprintsPreviewError)}
-              onClick={() => void handleCreateTemplate()}
-              className="h-12 px-6 rounded-[20px] bg-gradient-to-r from-[#FF9BB5] to-[#FFC2D4] text-white"
-            >
-              {templateBusy ? "Создаем…" : "Создать шаблон"}
-            </Button>
-          </div>
-        </div>
-
-        {canManageAdmins && (
-          <div className="bg-white rounded-[20px] p-8 shadow-lg">
-            <div className="flex items-center gap-2 mb-6">
-              <UserPlus className="w-5 h-5 text-[#FF9BB5]" />
-              <h2 className="text-2xl">Управление админами</h2>
-            </div>
-
-            <div className="flex gap-3 mb-6">
-              <Input
-                value={newAdminId}
-                onChange={(e) => setNewAdminId(e.target.value)}
-                placeholder="user_id пользователя"
-                className="h-12 rounded-[20px] border-2 border-[#FFE5EC] bg-white px-5"
-              />
-              <Button
-                type="button"
-                disabled={adminBusy}
-                onClick={() => void handleAddAdmin()}
-                className="h-12 px-6 rounded-[20px] bg-gradient-to-r from-[#FF9BB5] to-[#FFC2D4] text-white"
-              >
-                Добавить
-              </Button>
-            </div>
-
-            <div className="space-y-3">
-              {admins.map((a) => (
-                <div
-                  key={a.user_id}
-                  className="flex items-center justify-between bg-[#FFF5F8] rounded-[16px] px-4 py-3"
-                >
-                  <p className="text-sm">
-                    user_id: <span className="font-medium">{a.user_id}</span> · роль:{" "}
-                    <span className="font-medium">{a.role}</span>
-                  </p>
-                  {a.role === "admin" && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={adminBusy}
-                      onClick={() => void handleRemoveAdmin(a.user_id)}
-                      className="h-10 rounded-[16px] border-2 border-[#FFE5EC] hover:bg-[#FFE5EC]"
+            <section className="mt-8 rounded-[10px] border border-border bg-card p-6 sm:p-8">
+              <h2 className="text-lg font-medium tracking-tight">Шаблон проекта</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                JSON спринтов как в API. Направление и уровень — те же, что на онбординге.
+              </p>
+              <div className="mt-6 space-y-4">
+                <Field
+                  label="Название"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+                <Field
+                  label="Описание"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <label className="block space-y-2">
+                    <span className="text-xs font-medium tracking-wide text-muted-foreground">
+                      Направление
+                    </span>
+                    <select
+                      value={direction}
+                      onChange={(e) => setDirection(e.target.value)}
+                      className={selectClass}
                     >
-                      <Trash2 className="w-4 h-4 mr-1" />
-                      Удалить
-                    </Button>
-                  )}
+                      <option value="backend">Backend</option>
+                      <option value="frontend">Frontend</option>
+                      <option value="fullstack">Fullstack</option>
+                    </select>
+                  </label>
+                  <label className="block space-y-2">
+                    <span className="text-xs font-medium tracking-wide text-muted-foreground">
+                      Уровень
+                    </span>
+                    <select
+                      value={level}
+                      onChange={(e) => setLevel(e.target.value)}
+                      className={selectClass}
+                    >
+                      <option value="junior">Junior</option>
+                      <option value="junior-plus">Junior+</option>
+                    </select>
+                  </label>
                 </div>
-              ))}
-            </div>
-          </div>
+                <label className="block space-y-2">
+                  <span className="text-xs font-medium tracking-wide text-muted-foreground">
+                    Спринты (JSON)
+                  </span>
+                  <textarea
+                    value={sprintsJson}
+                    onChange={(e) => setSprintsJson(e.target.value)}
+                    className={cn(
+                      fieldClass,
+                      "min-h-[220px] h-auto py-3 font-mono text-[13px] leading-relaxed",
+                    )}
+                  />
+                </label>
+                {sprintsPreviewError && (
+                  <p className="text-sm text-destructive">{sprintsPreviewError}</p>
+                )}
+                <PrimaryButton
+                  type="button"
+                  className="w-auto min-w-[180px]"
+                  disabled={templateBusy || Boolean(sprintsPreviewError)}
+                  onClick={() => void handleCreateTemplate()}
+                >
+                  {templateBusy ? "Создаём…" : "Создать шаблон"}
+                </PrimaryButton>
+              </div>
+            </section>
+
+            {canManageAdmins && (
+              <section className="mt-6 rounded-[10px] border border-border bg-card p-6 sm:p-8">
+                <h2 className="text-lg font-medium tracking-tight">Админы</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Выдаёшь роль по user_id. Superadmin снять с себя нельзя.
+                </p>
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                  <Field
+                    label="user_id"
+                    value={newAdminId}
+                    onChange={(e) => setNewAdminId(e.target.value)}
+                    className="sm:min-w-[200px]"
+                  />
+                  <PrimaryButton
+                    type="button"
+                    className="w-auto shrink-0 sm:mt-7 sm:h-12"
+                    disabled={adminBusy}
+                    onClick={() => void handleAddAdmin()}
+                  >
+                    Добавить
+                  </PrimaryButton>
+                </div>
+                <div className="mt-6 space-y-2">
+                  {admins.length === 0 && (
+                    <p className="py-6 text-sm text-muted-foreground">Пока никого нет в списке.</p>
+                  )}
+                  {admins.map((a) => (
+                    <div
+                      key={a.user_id}
+                      className="flex items-center justify-between gap-3 rounded-xl border border-border px-4 py-3"
+                    >
+                      <p className="text-sm">
+                        <span className="font-medium">{a.user_id}</span>
+                        <span className="text-muted-foreground"> · {a.role}</span>
+                      </p>
+                      {a.role === "admin" && (
+                        <button
+                          type="button"
+                          disabled={adminBusy}
+                          onClick={() => void handleRemoveAdmin(a.user_id)}
+                          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-destructive disabled:opacity-40"
+                        >
+                          <Trash2 className="size-3.5" />
+                          Снять
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+          </>
         )}
       </div>
-    </div>
+    </WorkspaceShell>
   );
 }

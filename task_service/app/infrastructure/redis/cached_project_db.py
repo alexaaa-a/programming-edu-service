@@ -42,11 +42,11 @@ def _template_from_json(s: str) -> ProjectTemplateDTO | None:
 
 class CachedProjectDB(ProjectDBInterface):
     def __init__(
-        self,
-        inner: ProjectDBInterface,
-        cache: CacheInterface,
-        logger: logging.Logger,
-        ttl_sec: int = 300,
+            self,
+            inner: ProjectDBInterface,
+            cache: CacheInterface,
+            logger: logging.Logger,
+            ttl_sec: int = 300,
     ) -> None:
         self._inner = inner
         self._cache = cache
@@ -57,7 +57,8 @@ class CachedProjectDB(ProjectDBInterface):
         return TEMPLATE.format(template_id=template_id)
 
     async def get_template_by_id(
-        self, template_id: int | str
+            self,
+            template_id: int | str
     ) -> ProjectTemplateDTO | None:
         template_id_str = str(template_id)
         key = self._key(template_id_str)
@@ -72,10 +73,10 @@ class CachedProjectDB(ProjectDBInterface):
         return dto
 
     async def get_all_templates_for_user(
-        self,
-        exclude_ids: list[int],
-        level: str,
-        direction: str,
+            self,
+            exclude_ids: list[int],
+            level: str,
+            direction: str,
     ) -> list[ProjectTemplateDTO] | None:
         return await self._inner.get_all_templates_for_user(
             exclude_ids, level, direction

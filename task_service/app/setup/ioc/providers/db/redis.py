@@ -15,6 +15,7 @@ class RedisProvider(Provider):
             host=settings.redis_settings.host,
             port=settings.redis_settings.port,
             db=settings.redis_settings.db,
+            password=settings.redis_settings.password,
             decode_responses=True,
         )
         try:

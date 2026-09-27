@@ -1,7 +1,4 @@
-from __future__ import annotations
-
 import json
-from dataclasses import asdict
 from typing import Any
 
 import redis.asyncio as redis
@@ -36,11 +33,10 @@ class RedisRetrieveCache(RetrieveCache):
         return docs
 
     async def set(
-        self,
-        key: str,
-        value: list[RetrievedDocument],
-        *,
-        ttl_sec: int,
+            self,
+            key: str,
+            value: list[RetrievedDocument],
+            ttl_sec: int,
     ) -> None:
         if ttl_sec <= 0:
             return
@@ -56,3 +52,12 @@ class RedisRetrieveCache(RetrieveCache):
             )
 
         await self._redis.set(key, json.dumps(payload, ensure_ascii=False), ex=ttl_sec)
+
+    async def generation(self) -> str:
+        raw = await self._redis.get("rag_retrieve_gen")
+        if raw is None:
+            return "0"
+        return str(raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else raw)
+
+    async def bump_generation(self) -> None:
+        await self._redis.incr("rag_retrieve_gen")

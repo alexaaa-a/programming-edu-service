@@ -18,8 +18,8 @@ class KafkaCommonProvider(Provider):
 class AIOKafkaProducerProvider(Provider):
     @provide(scope=Scope.APP)
     def kafka_producer(
-        self,
-        kafka_bootstrap_servers: list[str],
+            self,
+            kafka_bootstrap_servers: list[str],
     ) -> AIOKafkaProducer:
         return AIOKafkaProducer(
             bootstrap_servers=kafka_bootstrap_servers,
@@ -30,9 +30,9 @@ class AIOKafkaProducerProvider(Provider):
 class AIOKafkaConsumerProvider(Provider):
     @provide(scope=Scope.APP)
     def kafka_consumer(
-        self,
-        settings: Settings,
-        kafka_bootstrap_servers: list[str],
+            self,
+            settings: Settings,
+            kafka_bootstrap_servers: list[str],
     ) -> AIOKafkaConsumer:
         topic = settings.kafka_settings.topic_submission_created
         group_id = settings.kafka_settings.submission_review_consumer_group_id
@@ -41,17 +41,18 @@ class AIOKafkaConsumerProvider(Provider):
             bootstrap_servers=kafka_bootstrap_servers,
             value_deserializer=lambda v: v,
             group_id=group_id,
+            enable_auto_commit=False,
         )
 
 
 class SubmissionReviewProducerProvider(Provider):
     @provide(scope=Scope.APP)
     def submission_review_producer(
-        self,
-        kafka_producer: AIOKafkaProducer,
-        settings: Settings,
-        logger: logging.Logger,
-        metrics_recorder: MetricsRecorder,
+            self,
+            kafka_producer: AIOKafkaProducer,
+            settings: Settings,
+            logger: logging.Logger,
+            metrics_recorder: MetricsRecorder,
     ) -> SubmissionReviewProducer:
         return SubmissionReviewProducer(
             kafka_producer=kafka_producer,
@@ -64,13 +65,13 @@ class SubmissionReviewProducerProvider(Provider):
 class SubmissionReviewConsumerProvider(Provider):
     @provide(scope=Scope.APP)
     def submission_review_consumer(
-        self,
-        kafka_consumer: AIOKafkaConsumer,
-        submission_review_producer: SubmissionReviewProducer,
-        review_submission_use_case: ReviewSubmissionUseCase,
-        settings: Settings,
-        logger: logging.Logger,
-        metrics_recorder: MetricsRecorder,
+            self,
+            kafka_consumer: AIOKafkaConsumer,
+            submission_review_producer: SubmissionReviewProducer,
+            review_submission_use_case: ReviewSubmissionUseCase,
+            settings: Settings,
+            logger: logging.Logger,
+            metrics_recorder: MetricsRecorder,
     ) -> SubmissionReviewConsumer:
         return SubmissionReviewConsumer(
             kafka_consumer=kafka_consumer,

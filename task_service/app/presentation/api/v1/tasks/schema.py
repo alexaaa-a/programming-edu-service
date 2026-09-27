@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TaskResponse(BaseModel):
@@ -13,6 +13,8 @@ class TaskResponse(BaseModel):
     status: str
     created_at: datetime
     completed_at: datetime | None
+    close_quality: str | None = None
+    close_note: str | None = None
 
 
 class BoardResponse(BaseModel):
@@ -24,3 +26,7 @@ class BoardResponse(BaseModel):
 
 class UpdateTaskStatus(BaseModel):
     status: str
+
+
+class PeerReviewIn(BaseModel):
+    note: str = Field(min_length=1, max_length=2000)

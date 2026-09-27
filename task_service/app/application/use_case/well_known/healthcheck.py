@@ -5,10 +5,10 @@ from task_service.app.application.interfaces.kafka import TaskEventProducerInter
 
 class HealthCheckUseCase:
     def __init__(
-        self,
-        mongo_db: MongoDBInterface,
-        cache: CacheInterface,
-        kafka: TaskEventProducerInterface,
+            self,
+            mongo_db: MongoDBInterface,
+            cache: CacheInterface,
+            kafka: TaskEventProducerInterface,
     ) -> None:
         self.mongo_db = mongo_db
         self.cache = cache

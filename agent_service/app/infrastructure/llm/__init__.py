@@ -1,3 +1,3 @@
-from agent_service.app.infrastructure.llm.openrouter_client import OpenRouterClient
+from agent_service.app.infrastructure.llm.openai_client import OpenAIClient
 
-__all__ = ["OpenRouterClient"]
+__all__ = ["OpenAIClient"]

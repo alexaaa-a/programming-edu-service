@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,9 +7,9 @@ from agent_service.app.application.observability.metrics_recorder import Metrics
 
 
 class EmbeddingProvider(Protocol):
-    def embed_documents(self, texts: Sequence[str]) -> list[list[float]]: ...
+    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]: ...
 
-    def embed_query(self, text: str) -> list[float]: ...
+    async def embed_query(self, text: str) -> list[float]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,117 +26,147 @@ def _make_deterministic_id(*parts: str, length: int = 20) -> str:
     return f"doc_{digest}"
 
 
+def chroma_where(types: set[str] | None) -> dict[str, Any] | None:
+    if not types:
+        return None
+    values = sorted(str(item) for item in types)
+    if len(values) == 1:
+        return {"type": values[0]}
+    return {"$or": [{"type": value} for value in values]}
+
+
+def sanitize_metadata(metadata: dict[str, Any] | None) -> dict[str, str | int | float | bool]:
+    clean: dict[str, str | int | float | bool] = {}
+    for key, value in (metadata or {}).items():
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            clean[str(key)] = value
+        elif isinstance(value, int):
+            clean[str(key)] = value
+        elif isinstance(value, float):
+            clean[str(key)] = value
+        else:
+            clean[str(key)] = str(value)
+    return clean
+
+
 class VectorStore:
     def __init__(
-        self,
-        *,
-        embedding_provider: EmbeddingProvider,
-        backend: str = "chroma",
-        persist_dir: Path,
-        collection_name: str = "agent_docs",
-        metrics_recorder: MetricsRecorder | None = None,
+            self,
+            embedding_provider: EmbeddingProvider,
+            persist_dir: Path,
+            collection_name: str,
+            metrics_recorder: MetricsRecorder | None = None,
+            chroma_client: Any | None = None,
     ) -> None:
-        if backend != "chroma":
-            raise ValueError(f"Unsupported backend: {backend!r}")
-
         self._embedding_provider = embedding_provider
-        self._backend = backend
         self._persist_dir = persist_dir
         self._collection_name = collection_name
         self._metrics = metrics_recorder
 
         self._persist_dir.mkdir(parents=True, exist_ok=True)
 
-        try:
-            import chromadb  # type: ignore[import-not-found]
-        except ImportError as e:
-            raise RuntimeError(
-                "VectorStore backend 'chroma' requires package 'chromadb'. "
-                "Add it to requirements and reinstall."
-            ) from e
+        if chroma_client is None:
+            try:
+                import chromadb
+            except ImportError as e:
+                raise RuntimeError(
+                    "VectorStore requires package 'chromadb'. Add it to requirements and reinstall."
+                ) from e
+            chroma_client = chromadb.PersistentClient(path=str(self._persist_dir))
 
-        self._chroma_client = chromadb.PersistentClient(path=str(self._persist_dir))
-        self._collection = self._chroma_client.get_or_create_collection(name=self._collection_name)
+        self._chroma_client = chroma_client
+        self._collection = self._chroma_client.get_or_create_collection(
+            name=self._collection_name,
+            metadata={"hnsw:space": "cosine"},
+        )
 
-    def add_documents(
-        self,
-        *,
-        documents: Sequence[str],
-        metadatas: Optional[Sequence[dict[str, Any]]] = None,
-        ids: Optional[Sequence[str]] = None,
+    async def add_documents(
+            self,
+            documents: Sequence[str],
+            metadatas: Optional[Sequence[dict[str, Any]]] = None,
+            ids: Optional[Sequence[str]] = None,
     ) -> list[str]:
         if not documents:
             return []
 
         if metadatas is None:
-            metadatas = [{} for _ in documents]
-        if len(metadatas) != len(documents):
-            raise ValueError("metadatas length must match documents length")
+            cleaned = [{} for _ in documents]
+        else:
+            if len(metadatas) != len(documents):
+                raise ValueError("metadatas length must match documents length")
+            cleaned = [sanitize_metadata(item) for item in metadatas]
 
         if ids is None:
             ids = [
                 _make_deterministic_id(text, str(meta), length=20)
-                for text, meta in zip(documents, metadatas)
+                for text, meta in zip(documents, cleaned)
             ]
         if len(ids) != len(documents):
             raise ValueError("ids length must match documents length")
 
-        embeddings = self._embedding_provider.embed_documents(list(documents))
+        embeddings = await self._embedding_provider.embed_documents(list(documents))
         if len(embeddings) != len(documents):
             raise ValueError("embed_documents must return embeddings for every document")
 
         if self._metrics is not None and embeddings:
-            embedding_dim = len(embeddings[0])
             self._metrics.increment(
                 "memory_embedding_dim_total",
                 1,
                 tags={
-                    "embedding_dim": str(embedding_dim),
+                    "embedding_dim": str(len(embeddings[0])),
                     "operation": "add_documents",
+                    "collection": self._collection_name,
                 },
             )
 
+        payload = {
+            "documents": list(documents),
+            "embeddings": embeddings,
+            "metadatas": cleaned,
+            "ids": list(ids),
+        }
         if hasattr(self._collection, "upsert"):
-            self._collection.upsert(
-                documents=list(documents),
-                embeddings=embeddings,
-                metadatas=list(metadatas),
-                ids=list(ids),
-            )
+            self._collection.upsert(**payload)
         else:
-            self._collection.add(
-            documents=list(documents),
-            embeddings=embeddings,
-            metadatas=list(metadatas),
-            ids=list(ids),
-            )
+            self._collection.add(**payload)
         return list(ids)
 
-    def similarity_search(
-        self,
-        *,
-        query: str,
-        k: int = 5,
+    async def similarity_search(
+            self,
+            query: str,
+            k: int = 5,
+            where: dict[str, Any] | None = None,
+            query_embedding: list[float] | None = None,
     ) -> VectorStoreSearchResult:
         if k <= 0:
             return VectorStoreSearchResult(documents=[], metadatas=[], ids=[], scores=[])
 
-        query_embedding = self._embedding_provider.embed_query(query)
+        if query_embedding is None:
+            query_embedding = await self._embedding_provider.embed_query(query)
         if self._metrics is not None:
-            embedding_dim = len(query_embedding)
             self._metrics.increment(
                 "memory_embedding_dim_total",
                 1,
                 tags={
-                    "embedding_dim": str(embedding_dim),
+                    "embedding_dim": str(len(query_embedding)),
                     "operation": "similarity_search",
+                    "collection": self._collection_name,
                 },
             )
 
-        results = self._collection.query(
-            query_embeddings=[query_embedding],
-            n_results=int(k),
-        )
+        kwargs: dict[str, Any] = {
+            "query_embeddings": [query_embedding],
+            "n_results": int(k),
+        }
+        if where:
+            kwargs["where"] = where
+
+        try:
+            results = self._collection.query(**kwargs)
+        except Exception:
+            return VectorStoreSearchResult(documents=[], metadatas=[], ids=[], scores=[])
 
         documents = list(results.get("documents", [[]])[0] or [])
         metadatas_raw = list(results.get("metadatas", [[]])[0] or [])

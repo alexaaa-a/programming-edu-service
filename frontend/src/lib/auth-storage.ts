@@ -1,6 +1,5 @@
 const ACCESS = "access_token";
 const REFRESH = "refresh_token";
-const CHAT_SESSION_PREFIX = "chat_session_id";
 
 export function getAccessToken(): string | null {
   return localStorage.getItem(ACCESS);
@@ -18,22 +17,19 @@ export function setTokens(access: string, refresh: string): void {
 export function clearTokens(): void {
   localStorage.removeItem(ACCESS);
   localStorage.removeItem(REFRESH);
+  const doomed: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key) continue;
+    if (key.startsWith("chat_session_id") || key.startsWith("chat_messages:")) {
+      doomed.push(key);
+    }
+  }
+  for (const key of doomed) {
+    localStorage.removeItem(key);
+  }
 }
 
 export function isAuthenticated(): boolean {
   return Boolean(getAccessToken());
-}
-
-export function getChatSessionId(scope: string = "general"): string {
-  const key = `${CHAT_SESSION_PREFIX}:${scope}`;
-  let id = localStorage.getItem(key);
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem(key, id);
-  }
-  return id;
-}
-
-export function setChatSessionId(scope: string, sessionId: string): void {
-  localStorage.setItem(`${CHAT_SESSION_PREFIX}:${scope}`, sessionId);
 }

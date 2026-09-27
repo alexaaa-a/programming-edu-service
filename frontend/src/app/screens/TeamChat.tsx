@@ -1,17 +1,21 @@
 import { useNavigate, useLocation } from "react-router";
-import { ArrowLeft, Send, Loader2 } from "lucide-react";
-import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
-import { useState, useRef, useEffect } from "react";
+import { Send, Loader2 } from "lucide-react";
+import { useState, useRef, useEffect, type FormEvent } from "react";
 import { toast } from "sonner";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { getChatSessionId } from "@/lib/auth-storage";
 import {
   isChatSendInFlightForScope,
   startBackgroundChatSend,
 } from "@/lib/background-chat";
 import { useRequireAuth } from "../hooks/useRequireAuth";
+import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
+import { MarkdownBody } from "../components/MarkdownBody";
+import { EmptyState } from "../components/EmptyState";
+import { TEAM, memberFromSender } from "@/lib/team";
+import { consumeEmmaSession, getCareer, getChatHistory, getMe, getMyAdminRole, getMyTrajectory } from "@/lib/api";
+import { careerRights, keepOneMention } from "@/lib/career-rights";
+import type { AdminRole, ChatHistoryItem, UserTrajectory } from "@/lib/types";
+import { chatEmptyCopy } from "@/lib/trajectory";
+import { ChatBriefing } from "../components/workspace/ChatBriefing";
 
 interface Message {
   id: string;
@@ -21,81 +25,181 @@ interface Message {
   sender?: string;
 }
 
+function formatChatTime(iso: string): string {
+  const normalized = /(?:Z|[+-]\d{2}:\d{2})$/.test(iso) ? iso : `${iso}Z`;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
+function historyToMessages(rows: ChatHistoryItem[]): Message[] {
+  return rows.map((row) => ({
+    id: row.id,
+    text: row.text,
+    isUser: row.role === "user",
+    time: formatChatTime(row.created_at),
+    sender: row.sender || undefined,
+  }));
+}
+
 export default function TeamChat() {
   useRequireAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const chatState = (location.state as { taskTitle?: string; taskId?: number } | null) ?? null;
+  const chatState =
+    (location.state as { taskTitle?: string; taskId?: number; emmaBriefing?: string } | null) ??
+    null;
+  const emmaBriefing = chatState?.emmaBriefing?.trim() || "";
   const taskTitleForApi = chatState?.taskTitle?.trim() || undefined;
-  const headerTitle = taskTitleForApi ?? "Общий чат команды";
-  const chatScope = chatState?.taskId ? `task:${chatState.taskId}` : "general_v2";
-  const historyKey = `chat_messages:${chatScope}`;
+  const headerTitle =
+    taskTitleForApi ??
+    (chatState?.taskId != null ? `Задача #${chatState.taskId}` : "Общий чат");
+  const chatScope = chatState?.taskId ? `task:${chatState.taskId}` : "general";
+  const sessionId = chatScope;
 
+  const [userName, setUserName] = useState<string | undefined>();
+  const [oneSpeaker, setOneSpeaker] = useState(false);
+  const [emmaArmed, setEmmaArmed] = useState(Boolean(emmaBriefing));
+  const [adminRole, setAdminRole] = useState<AdminRole>("user");
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
+  const [historyReady, setHistoryReady] = useState(false);
   const [sending, setSending] = useState(false);
-  const sessionIdRef = useRef(getChatSessionId(chatScope));
+  const [trajectory, setTrajectory] = useState<UserTrajectory | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const responderIndexRef = useRef(0);
 
   useEffect(() => {
-    sessionIdRef.current = getChatSessionId(chatScope);
-  }, [chatScope]);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(historyKey);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Message[];
-      if (Array.isArray(parsed)) {
-        setMessages(parsed);
+    void (async () => {
+      try {
+        const [me, role, career] = await Promise.all([getMe(), getMyAdminRole(), getCareer()]);
+        setUserName(me.name);
+        setAdminRole(role.role);
+        setOneSpeaker(careerRights(career?.grade).oneSpeaker);
+      } catch {
+        /* rail still works */
       }
-    } catch {
-      /* ignore */
-    }
-  }, [historyKey]);
+    })();
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem(historyKey, JSON.stringify(messages));
-  }, [messages, historyKey]);
+    let cancelled = false;
+    const loadTrajectory = async () => {
+      try {
+        const next = await getMyTrajectory(chatState?.taskId);
+        if (!cancelled) setTrajectory(next);
+      } catch {
+        if (!cancelled) setTrajectory(null);
+      }
+    };
+    void loadTrajectory();
+    const onReviewReady = () => {
+      void loadTrajectory();
+    };
+    const onFocus = () => {
+      void loadTrajectory();
+    };
+    window.addEventListener("submission-review-ready", onReviewReady);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("submission-review-ready", onReviewReady);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [chatState?.taskId]);
 
   useEffect(() => {
-    if (isChatSendInFlightForScope(chatScope)) {
-      setSending(true);
-    }
+    let cancelled = false;
+    let ticket = 0;
+    let announced = false;
+    const loadHistory = async (announce: boolean) => {
+      const mine = ++ticket;
+      try {
+        const rows = await getChatHistory(chatState?.taskId);
+        if (cancelled || mine !== ticket || isChatSendInFlightForScope(chatScope)) return;
+        setMessages(historyToMessages(rows));
+      } catch (err) {
+        if (!cancelled && announce && !announced) {
+          announced = true;
+          toast.error(err instanceof Error ? err.message : "Не удалось открыть переписку");
+        }
+      } finally {
+        if (!cancelled && mine === ticket) setHistoryReady(true);
+      }
+    };
+    setHistoryReady(false);
+    void loadHistory(true);
+    const onFocus = () => {
+      if (document.visibilityState === "hidden") return;
+      if (isChatSendInFlightForScope(chatScope)) return;
+      void loadHistory(false);
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [chatScope, chatState?.taskId]);
+
+  useEffect(() => {
+    if (isChatSendInFlightForScope(chatScope)) setSending(true);
   }, [chatScope]);
 
   useEffect(() => {
     const onComplete = (ev: Event) => {
-      const d = (ev as CustomEvent<{ historyKey: string }>).detail;
-      if (d.historyKey !== historyKey) return;
-      try {
-        const raw = localStorage.getItem(historyKey);
-        if (raw) {
-          const parsed = JSON.parse(raw) as Message[];
-          if (Array.isArray(parsed)) setMessages(parsed);
-        }
-      } catch {
-        /* ignore */
-      }
-      sessionIdRef.current = getChatSessionId(chatScope);
+      const d = (ev as CustomEvent<{ chatScope: string; failed?: boolean; assistant?: Message }>).detail;
+      if (d.chatScope !== chatScope) return;
       setSending(false);
+      void (async () => {
+        try {
+          const rows = await getChatHistory(chatState?.taskId);
+          setMessages(historyToMessages(rows));
+        } catch {
+          if (d.assistant) {
+            setMessages((prev) =>
+              prev.some((item) => item.id === d.assistant?.id) ? prev : [...prev, d.assistant!],
+            );
+          }
+        }
+      })();
     };
     window.addEventListener("chat-background-complete", onComplete);
     return () => window.removeEventListener("chat-background-complete", onComplete);
-  }, [historyKey, chatScope]);
+  }, [chatScope, chatState?.taskId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, sending]);
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: FormEvent) => {
     e.preventDefault();
-    const text = message.trim();
+    let text = message.trim();
     if (!text || sending || isChatSendInFlightForScope(chatScope)) return;
+    let briefing: string | undefined;
+    if (emmaArmed && emmaBriefing) {
+      try {
+        await consumeEmmaSession();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Сессия Эммы уже использована");
+        setEmmaArmed(false);
+        return;
+      }
+      briefing = emmaBriefing;
+      setEmmaArmed(false);
+      if (!/@эмма\b/i.test(text)) text = `@Эмма ${text}`;
+    }
+    if (oneSpeaker) {
+      const kept = keepOneMention(text);
+      if (kept.trimmed) {
+        toast.message("На стажёрском грейде за ход отвечает один человек");
+      }
+      text = kept.text;
+    }
 
     const now = new Date().toLocaleTimeString(undefined, {
-      hour: "numeric",
+      hour: "2-digit",
       minute: "2-digit",
     });
     const userMsg: Message = {
@@ -104,9 +208,7 @@ export default function TeamChat() {
       isUser: true,
       time: now,
     };
-    const nextMessages = [...messages, userMsg];
-    localStorage.setItem(historyKey, JSON.stringify(nextMessages));
-    setMessages(nextMessages);
+    setMessages((prev) => [...prev, userMsg]);
     setMessage("");
     setSending(true);
 
@@ -121,116 +223,172 @@ export default function TeamChat() {
           }
         : null;
 
+    const turnId = crypto.randomUUID();
     startBackgroundChatSend({
-      historyKey,
       chatScope,
-      sessionId: sessionIdRef.current,
+      sessionId,
       userText: text,
       taskTitleForApi,
+      taskId: chatState?.taskId,
       responderIndex,
+      soloOnly: oneSpeaker || Boolean(briefing),
+      emmaBriefing: briefing,
       chatRestore,
+      turnId,
     });
 
-    if (chatState?.taskId != null) {
-      const t = taskTitleForApi ?? chatState.taskTitle ?? "задаче";
-      toast.info("Сообщение отправлено", {
-        description: `Ответ появится в чате по задаче «${t}». Можно уйти со страницы — когда ответ будет готов, придёт уведомление с кнопкой «К чату задачи».`,
-        duration: 9000,
-      });
-    } else {
-      toast.info("Сообщение отправлено", {
-        description:
-          "Ответ появится в общем чате команды. Можно уйти со страницы — когда ответ будет готов, придёт уведомление с кнопкой «Открыть общий чат».",
-        duration: 9000,
-      });
-    }
+    toast.info("Сообщение ушло команде", {
+      description: "Можно не ждать на странице — ответ придёт уведомлением.",
+      duration: 7000,
+    });
   };
 
-  return (
-    <div className="min-h-screen p-6 md:p-12">
-      <div className="max-w-3xl mx-auto">
-        <div className="flex items-center justify-between mb-6 gap-4">
-          <button
-            type="button"
-            onClick={() => navigate("/dashboard")}
-            className="flex items-center gap-2 text-[#9E9E9E] hover:text-[#FF9BB5] transition-colors shrink-0"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            <span>Назад</span>
-          </button>
-          <h2 className="text-xl text-center flex-1 truncate px-2">{headerTitle}</h2>
-          <span className="w-16 shrink-0" aria-hidden />
-        </div>
+  const emptyChat = chatEmptyCopy(trajectory);
 
-        <div className="bg-white rounded-[20px] shadow-lg overflow-hidden flex flex-col h-[600px]">
-          <div className="flex-1 p-6 space-y-4 overflow-y-auto">
-            {messages.length === 0 && (
-              <p className="text-center text-[#9E9E9E] text-sm pt-8">
-                Напишите вопрос, и вам ответит один из участников команды.
-              </p>
-            )}
-            {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex ${msg.isUser ? "justify-end" : "justify-start"}`}
+  return (
+    <WorkspaceShell adminRole={adminRole} userName={userName} fullBleed>
+      <div className="flex h-full min-h-0">
+        <aside className="hidden w-[220px] shrink-0 flex-col border-r border-border bg-card/50 lg:flex">
+          <div className="border-b border-border px-4 py-4">
+            <p className="font-mono text-[11px] text-muted-foreground">
+              Канал
+            </p>
+            <p className="mt-1 truncate text-sm font-medium">{headerTitle}</p>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3">
+            <p className="mb-2 px-1 font-mono text-[11px] text-muted-foreground">
+              Участники
+            </p>
+            {TEAM.map((m) => (
+              <button
+                key={m.name}
+                type="button"
+                onClick={() =>
+                  setMessage((prev) => {
+                    if (!oneSpeaker) return prev ? `${prev} @${m.name}` : `@${m.name} `;
+                    const rest = prev.replace(/@(?:Сара|Майк|Эмма|Джон)\s*/gi, "").trim();
+                    return `@${m.name}${rest ? ` ${rest}` : ""} `;
+                  })
+                }
+                className="mb-1 flex w-full items-center gap-2.5 rounded-[10px] px-2 py-2 text-left hover:bg-foreground/[0.04]"
               >
-                <div
-                  className={`max-w-[70%] rounded-[20px] px-5 py-3 ${
-                    msg.isUser
-                      ? "bg-gradient-to-r from-[#FF9BB5] to-[#FFC2D4] text-white"
-                      : "bg-[#FFF5F8] text-[#4A4A4A]"
-                  }`}
+                <span
+                  className="flex size-7 items-center justify-center rounded-full text-[11px] font-medium text-[#1c140e]"
+                  style={{ background: m.accent }}
                 >
-                  {!msg.isUser && (
-                    <p className="text-xs mb-1 opacity-70">{msg.sender ?? "Команда"}</p>
-                  )}
-                  {msg.isUser ? (
-                    <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
-                  ) : (
-                    <div className="leading-relaxed prose prose-sm max-w-none prose-p:my-2 prose-strong:text-inherit">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {msg.text}
-                      </ReactMarkdown>
-                    </div>
-                  )}
-                  <p
-                    className={`text-xs mt-1 ${
-                      msg.isUser ? "text-white/70" : "text-[#9E9E9E]"
-                    }`}
-                  >
-                    {msg.time}
-                  </p>
-                </div>
-              </div>
+                  {m.name.charAt(0)}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-[13px]">{m.name}</span>
+                  <span className="block truncate text-[11px] text-muted-foreground">{m.role}</span>
+                </span>
+              </button>
             ))}
+          </div>
+          {chatState?.taskId != null && (
+            <button
+              type="button"
+              onClick={() => navigate(`/task/${chatState.taskId}`)}
+              className="border-t border-border px-4 py-3 text-left text-xs text-primary hover:underline"
+            >
+              Вернуться к задаче
+            </button>
+          )}
+        </aside>
+
+          <div className="flex min-w-0 flex-1 flex-col">
+          <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
+            <div className="min-w-0">
+              <p className="font-mono text-[11px] text-primary">Команда</p>
+              <h1 className="truncate text-lg leading-none">{headerTitle}</h1>
+            </div>
+          </header>
+          {trajectory ? (
+            <ChatBriefing trajectory={trajectory} taskTitle={taskTitleForApi} />
+          ) : null}
+
+          <div className="flex-1 space-y-5 overflow-y-auto px-4 py-5 sm:px-6">
+            {historyReady && messages.length === 0 && (
+              <EmptyState
+                title={emptyChat.title}
+                body={emptyChat.body}
+              />
+            )}
+            {messages.map((msg) => {
+              if (msg.isUser) {
+                return (
+                  <div key={msg.id} className="flex justify-end">
+                    <div className="max-w-[min(100%,560px)] rounded-[10px] border border-primary/30 bg-primary/10 px-4 py-3 text-sm">
+                      <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>
+                      <p className="mt-1 text-[11px] text-muted-foreground">{msg.time}</p>
+                    </div>
+                  </div>
+                );
+              }
+              const member = memberFromSender(msg.sender);
+              return (
+                <div key={msg.id} className="flex gap-3">
+                  <span
+                    className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-medium text-[#1c140e]"
+                    style={{ background: member.accent }}
+                  >
+                    {member.name.charAt(0)}
+                  </span>
+                  <div className="min-w-0 max-w-[min(100%,560px)]">
+                    <p className="mb-1 text-[12px]">
+                      <span className="font-medium">{member.name}</span>
+                      <span className="text-muted-foreground"> · {member.role}</span>
+                      <span className="text-muted-foreground"> · {msg.time}</span>
+                    </p>
+                    <div className="rounded-[10px] rounded-tl-md border border-border bg-card px-4 py-3">
+                      <MarkdownBody text={msg.text} />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {sending && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+                Команда печатает…
+              </div>
+            )}
             <div ref={bottomRef} />
           </div>
 
-          <div className="p-6 border-t border-[#FFE5EC]">
-            <form onSubmit={handleSendMessage} className="flex gap-3">
-              <Input
+          <form onSubmit={(e) => void handleSendMessage(e)} className="shrink-0 border-t border-border p-3 sm:p-4">
+            <div className="flex items-end gap-2 rounded-xl border border-border bg-card px-3 py-2">
+              <input
                 type="text"
-                placeholder="Введите сообщение…"
+                placeholder={
+                  emmaArmed
+                    ? "Один вопрос Эмме по упавшему тесту — готовое решение она не напишет"
+                    : oneSpeaker
+                    ? "Один человек за сообщение: @Сара, @Майк, @Эмма или @Джон"
+                    : trajectory?.action === "chat"
+                      ? "Спроси, что именно не закрыто…"
+                      : "Сообщение команде…"
+                }
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 disabled={sending}
-                className="flex-1 h-12 rounded-[20px] border-2 border-[#FFE5EC] bg-white px-5 focus:border-[#FF9BB5] transition-colors"
+                className="min-h-10 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
               />
-              <Button
+              <button
                 type="submit"
                 disabled={sending || !message.trim() || isChatSendInFlightForScope(chatScope)}
-                className="h-12 w-12 rounded-full bg-gradient-to-r from-[#FF9BB5] to-[#FFC2D4] hover:from-[#FF8AAA] hover:to-[#FFB1C9] text-white shadow-md flex items-center justify-center p-0 shrink-0"
+                className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground disabled:opacity-40"
               >
                 {sending || isChatSendInFlightForScope(chatScope) ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <Loader2 className="size-4 animate-spin" />
                 ) : (
-                  <Send className="w-5 h-5" />
+                  <Send className="size-4" />
                 )}
-              </Button>
-            </form>
-          </div>
+              </button>
+            </div>
+          </form>
         </div>
       </div>
-    </div>
+    </WorkspaceShell>
   );
 }

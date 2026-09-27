@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Sequence
@@ -29,21 +27,19 @@ class EvaluateReviewTestsResult:
 
 class EvaluateReviewTestsUseCase:
     def __init__(
-        self,
-        *,
-        review_submission_use_case: ReviewSubmissionUseCase,
-        eval_run_repository: EvalRunRepository,
-        metrics_calculator: ReviewMetricsCalculator,
+            self,
+            review_submission_use_case: ReviewSubmissionUseCase,
+            eval_run_repository: EvalRunRepository,
+            metrics_calculator: ReviewMetricsCalculator,
     ) -> None:
         self._review_submission_use_case = review_submission_use_case
         self._eval_run_repository = eval_run_repository
         self._metrics_calculator = metrics_calculator
 
     async def __call__(
-        self,
-        *,
-        tests: Sequence[TestReviewSubmission],
-        run_id: str | None = None,
+            self,
+            tests: Sequence[TestReviewSubmission],
+            run_id: str | None = None,
     ) -> EvaluateReviewTestsResult:
         if run_id is None:
             run_id = _make_run_id()

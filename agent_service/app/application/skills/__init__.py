@@ -1,5 +1,6 @@
 from .skill_interface import AgentSkill
 from .standard_skills import (
+    BuildAdversarialPromptsSkill,
     BuildBugPromptsSkill,
     BuildChatPromptsSkill,
     BuildMentorPromptsSkill,
@@ -22,6 +23,7 @@ __all__ = [
     "BuildBugPromptsSkill",
     "AnalyzeCodeQualitySkill",
     "DetectBugsSkill",
+    "BuildAdversarialPromptsSkill",
     "BuildMentorPromptsSkill",
     "BuildChatPromptsSkill",
 ]

@@ -1,8 +1,14 @@
-from __future__ import annotations
-
 import json
 from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any
+
+from agent_service.app.application.dto import Review
+from agent_service.app.application.dto.rag import RetrievedDocument
+from agent_service.app.application.interfaces import LLMInterface
+from agent_service.app.application.interfaces import MemoryInterface
+from agent_service.app.application.team import JOHN, TeamMember
+from agent_service.app.application.memory.provenance import format_provenance
+from agent_service.app.application.review.context_compact import compact_agent_results
 
 
 _MENTOR_ANALYSIS_JSON_MAX_CHARS = 14_000
@@ -17,16 +23,10 @@ def _to_jsonable_for_mentor(value: Any) -> Any:
         return [_to_jsonable_for_mentor(v) for v in value]
     return value
 
-from agent_service.app.application.dto import Review
-from agent_service.app.application.dto.rag import RetrievedDocument
-from agent_service.app.application.interfaces import LLMInterface
-from agent_service.app.application.interfaces import MemoryInterface
-
 
 def _filter_docs_by_types(
-    docs: list[RetrievedDocument],
-    *,
-    allowed_types: set[str],
+        docs: list[RetrievedDocument],
+        allowed_types: set[str],
 ) -> list[RetrievedDocument]:
     filtered: list[RetrievedDocument] = []
     for d in docs:
@@ -36,7 +36,7 @@ def _filter_docs_by_types(
     return filtered
 
 
-def _truncate_chars(text: str, *, max_chars: int) -> str:
+def _truncate_chars(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
     if max_chars <= 0:
@@ -44,11 +44,21 @@ def _truncate_chars(text: str, *, max_chars: int) -> str:
     return text[:max_chars].rsplit(" ", 1)[0].strip()
 
 
+def _tool_facts_block(kwargs: dict[str, Any]) -> str:
+    facts = str(kwargs.get("tool_facts") or "").strip()
+    if not facts:
+        return ""
+    return (
+        "Факты инструментов (это измерения, не мнение; не спорь с ними "
+        "и не ставь score выше указанного потолка):\n"
+        f"{facts}\n\n"
+    )
+
+
 def _format_knowledge_docs(
-    docs: list[RetrievedDocument],
-    *,
-    max_docs: int,
-    max_total_chars: int,
+        docs: list[RetrievedDocument],
+        max_docs: int,
+        max_total_chars: int,
 ) -> str:
     if not docs or max_docs <= 0 or max_total_chars <= 0:
         return "(no relevant knowledge found)"
@@ -60,12 +70,8 @@ def _format_knowledge_docs(
         if not text:
             continue
 
-        meta = item.metadata or {}
-        doc_type = str(meta.get("type", "") or "")
-        source = str(meta.get("source", "") or "")
-        header = ""
-        if doc_type or source:
-            header = f" (type={doc_type}, source={source})"
+        provenance = format_provenance(item.metadata)
+        header = f" ({provenance})" if provenance else ""
 
         remaining = max_total_chars - total
         if remaining <= 0:
@@ -203,6 +209,13 @@ class AnalyzeCodeQualitySkill:
             "- 6: заметные недочёты или неполная реализация ключевой части.\n"
             "- 4: существенные ошибки/несоответствия задаче.\n"
             "- 1: невозможно надёжно оценить или решение явно неверное/не компилируется.\n"
+            "Факты инструментов важнее впечатления:\n"
+            "- если синтаксис или компиляция сломаны — score не выше 2;\n"
+            "- если тесты в песочнице упали — score не выше 4;\n"
+            "- не отрицай находки static/sandbox/tests.\n"
+            "- если инструменты язык не проверяют — не понижай score из-за отсутствия lint/compile/tests.\n"
+            "- если в фактах есть прошлое ревью / повторная сдача — сравни с ним и не копируй устаревшие замечания.\n"
+            "- если есть критерии приёмки — оцени соответствие им в первую очередь.\n"
             "Жёсткие ограничения:\n"
             "- Ответ целиком должен быть JSON (без markdown/code fences/доп. текста снаружи JSON).\n"
             "- Поле feedback допускает Markdown для **жирного** (используй **...**), но избегай строк, начинающихся на '*' или '-' как маркеры.\n"
@@ -212,6 +225,7 @@ class AnalyzeCodeQualitySkill:
         )
 
         user_prompt = (
+            f"{_tool_facts_block(kwargs)}"
             f"Task description:\n{task_description}\n\n"
             f"Knowledge base (best practices):\n{docs_text}\n\n"
             f"Code:\n{code}\n"
@@ -293,10 +307,56 @@ class DetectBugsSkill:
             "- score — целое число от 1 до 10 (10 = очень надёжно, без критических багов).\n"
             "- suggestions: 0..6 пунктов, каждый <= 140 символов.\n"
             "- Если не можешь сформировать ответ надёжно, верни score=1, feedback с краткой причиной и suggestions=[]\n"
+            "- Не спорь с фактами инструментов: сломанный синтаксис/компиляция и упавшие тесты — это баги.\n"
+            "- Если инструменты язык не проверяют — не выдумывай падения компилятора.\n"
         )
 
         user_prompt = (
+            f"{_tool_facts_block(kwargs)}"
             f"Knowledge base (bugs & edge cases):\n{docs_text}\n\n"
+            f"Code:\n{code}\n"
+        )
+        return system_prompt, user_prompt
+
+
+@dataclass(frozen=True, slots=True)
+class BuildAdversarialPromptsSkill:
+    name: str = "build_adversarial_prompts"
+    description: str = "Builds prompts for the adversarial reviewer that challenges the team."
+
+    async def run(self, **kwargs: Any) -> tuple[str, str]:
+        code = str(kwargs["code"])
+        task_description = str(kwargs["task_description"])
+        team_summary = str(kwargs.get("team_summary") or "")
+
+        system_prompt = (
+            "Ты — состязательный проверяющий. Твоя задача — НЕ соглашаться с командой по умолчанию.\n"
+            "Опровергай вывод ревьюера и QA: что пропустили, где оценка завышена, какие риски скрыты.\n"
+            "Опирайся на код, бриф, критерии приёмки и факты инструментов. Не выдумывай падений вне фактов.\n"
+            "Язык полей feedback/challenges/missed: русский.\n"
+            "Верни ТОЛЬКО один валидный JSON объект:\n"
+            "{\n"
+            '  "agrees": <bool>,\n'
+            '  "severity": "low"|"medium"|"high",\n'
+            '  "score_cap": <int 1..10 или null>,\n'
+            '  "challenges": <array of string>,\n'
+            '  "missed": <array of string>,\n'
+            '  "feedback": <string>\n'
+            "}\n"
+            "Правила:\n"
+            "- agrees=true только если оценка команды справедлива и серьёзных упущений нет;\n"
+            "- если синтаксис/компиляция сломаны, а команда ставит >2 — agrees=false, score_cap<=2, severity=high;\n"
+            "- если тесты упали, а команда ставит >4 — agrees=false, score_cap<=4, severity=high;\n"
+            "- score_cap — верхняя оценка, которую ты готов допустить (или null);\n"
+            "- challenges: 0..5 коротких возражений (<=140 символов), без маркеров '*'/'-';\n"
+            "- missed: 0..5 упущений команды;\n"
+            "- feedback <= 280 символов, без упоминания внутренних ролей агентов;\n"
+            "- ответ целиком JSON, без markdown/code fences.\n"
+        )
+        user_prompt = (
+            f"{_tool_facts_block(kwargs)}"
+            f"Task description:\n{task_description}\n\n"
+            f"Team review summary:\n{team_summary}\n\n"
             f"Code:\n{code}\n"
         )
         return system_prompt, user_prompt
@@ -315,7 +375,7 @@ class BuildMentorPromptsSkill:
             results_text = results
         else:
             try:
-                payload = _to_jsonable_for_mentor(results)
+                payload = compact_agent_results(_to_jsonable_for_mentor(results))
                 results_text = json.dumps(payload, ensure_ascii=False, indent=2)
             except Exception:
                 results_text = str(results)
@@ -330,6 +390,13 @@ class BuildMentorPromptsSkill:
                 + results_text[-tail:]
             )
 
+        variant_hint = ""
+        facts = str(kwargs.get("tool_facts") or "")
+        if facts.startswith("Вариант "):
+            first_line, _, rest = facts.partition("\n")
+            variant_hint = first_line.strip()
+            kwargs = {**kwargs, "tool_facts": rest.strip()}
+
         system_prompt = (
             "Ты — senior software mentor.\n"
             "Получил код и результаты анализа.\n"
@@ -340,8 +407,21 @@ class BuildMentorPromptsSkill:
             "- Держи текст коротким: 3-5 предложений, <= 650 символов.\n"
             "- Не упоминай внутренние роли агентов.\n"
             "- Будь actionable: что менять, почему важно, как проверить.\n"
+            "- Если есть факты инструментов (синтаксис, компиляция, тесты, линт) — кратко скажи о них по-русски и не спорь с ними.\n"
+            "- Если в результатах есть scorecard — опирайся на этот разбор. Итоговый балл уже посчитан, не ставь другой.\n"
+            "- Если это повторная сдача: явно скажи, что исправлено после прошлого ревью, а что ещё нет.\n"
+            "- Если есть критерии приёмки — кратко перечисли закрытые и открытые, не спорь с их статусом.\n"
+            "- Если есть независимая/состязательная проверка с возражениями — коротко учти их в фидбеке, "
+            "не называй внутренние роли.\n"
+            "- Не выдавай готовое решение целиком: без больших блоков кода и без полного исправленного файла. "
+            "Только точечные правки и идеи.\n"
+            "- Если передан путь агентов — не пересказывай его целиком, опирайся на итог.\n"
+            "- Опирайся на сжатое резюме коллег и факты инструментов, не восстанавливай полную историю.\n"
         )
+        if variant_hint:
+            system_prompt += f"- Следуй углу варианта: {variant_hint}\n"
         user_prompt = (
+            f"{_tool_facts_block(kwargs)}"
             f"Code:\n{code}\n\n"
             f"Other agents results:\n{results_text}\n"
         )
@@ -374,9 +454,20 @@ class BuildRetrievalQuerySkill:
         context = kwargs["context"]
 
         task_ctx = self._task_context_text(context).strip()
+        user_tag = ""
+        if isinstance(context, dict):
+            uid = str(context.get("user_id") or "").strip()
+            sid = str(context.get("session_id") or "").strip()
+            bits: list[str] = []
+            if uid:
+                bits.append(f"user_id={uid}")
+            if sid:
+                bits.append(f"session_id={sid}")
+            if bits:
+                user_tag = "[" + " ".join(bits) + "]\n"
         if task_ctx:
-            return f"{message}\n\nКонтекст задачи:\n{task_ctx}"
-        return message
+            return f"{user_tag}{message}\n\nКонтекст задачи:\n{task_ctx}"
+        return f"{user_tag}{message}" if user_tag else message
 
     def _task_context_text(self, context: Any) -> str:
         if not isinstance(context, dict):
@@ -386,6 +477,11 @@ class BuildRetrievalQuerySkill:
             parts.append(str(context["task_title"]))
         if context.get("task_description"):
             parts.append(str(context["task_description"]))
+        if context.get("trajectory_briefing"):
+            parts.append(str(context["trajectory_briefing"]))
+        failed = context.get("failed_criteria")
+        if isinstance(failed, list) and failed:
+            parts.append("Не закрыто: " + "; ".join(str(item) for item in failed[:4]))
         return "\n".join(parts)
 
     def _to_text(self, value: Any) -> str:
@@ -407,12 +503,27 @@ class BuildChatPromptsSkill:
             return "(нет контекста задачи)"
         title = context.get("task_title")
         desc = context.get("task_description")
-        if title or desc:
-            parts: list[str] = []
-            if title:
-                parts.append(f"Название задачи (пользователь открыл чат из этой задачи):\n{title}")
-            if desc:
-                parts.append(f"Описание задачи:\n{desc}")
+        briefing = str(context.get("trajectory_briefing") or "").strip()
+        parts: list[str] = []
+        if title:
+            parts.append(f"Название задачи (пользователь открыл чат из этой задачи):\n{title}")
+        if desc:
+            parts.append(f"Описание задачи:\n{desc}")
+        emma = str(context.get("emma_briefing") or "").strip()
+        if emma:
+            parts.append(
+                "Платная сессия Эммы. Падающий тест из последнего ревью:\n"
+                f"{emma}\n"
+                "Разбери, что он проверяет и куда смотреть в коде. "
+                "Готовое решение, патч и полный исправленный код не пиши."
+            )
+        if briefing:
+            parts.append(
+                "Бриф траектории студента (опирайся на шаг, балл и незакрытые критерии; "
+                "не читай лекцию про формулу):\n"
+                f"{briefing}"
+            )
+        if parts:
             return "\n\n".join(parts)
         return (
             "Режим: общий командный чат без привязки к конкретной задаче.\n"
@@ -427,28 +538,54 @@ class BuildChatPromptsSkill:
         chat_history = kwargs["chat_history"]
         context = kwargs["context"]
         knowledge_docs = kwargs["knowledge_docs"]
+        member = kwargs.get("member")
+        if not isinstance(member, TeamMember):
+            member = JOHN
+        briefing = str(kwargs.get("briefing") or "").strip()
+        voice = str(kwargs.get("voice") or "user")
 
         history_text = self._to_text(chat_history)
         context_text = self._format_task_context_for_prompt(context)
         docs_text = self._format_docs(knowledge_docs)
 
-        system_prompt = (
-            "Ты — единый экспертный собеседник.\n"
-            "Формируй один финальный ответ на русском языке.\n"
-            "Внутренние промежуточные размышления и стенограмму НЕ показывай.\n\n"
-            "Требования к ответу:\n"
-            "1) Дай ОДИН ответ без заголовков ролей и без упоминания того, что это командное обсуждение.\n"
-            "2) Пиши по делу и профессионально; без воды.\n"
-            "3) Используй message и chat_history.\n"
-            "4) Используй knowledge context (KB) только если он помогает и не противоречит.\n"
-            "5) Если данных недостаточно — укажи краткие допущения и задай 1–3 уточняющих вопроса.\n"
-            "6) Объём: ориентируйся на ~200–450 слов.\n"
-            "7) Если в блоке контекста указано, что это общий чат без задачи, не ссылайся на «текущую задачу» "
-            "и не приписывай пользователю конкретное название задачи; отвечай в общих терминах или спроси, о какой задаче речь.\n"
-        )
+        if voice == "internal":
+            system_prompt = (
+                f"{member.persona}\n\n"
+                f"Сейчас ты пишешь ВНУТРЕННЮЮ заметку для команды, не ответ джуну.\n"
+                f"Зона: {member.focus}.\n"
+                "3–6 коротких предложений. Без приветствия, без markdown-заголовков, без «как ИИ».\n"
+                "Только факты и риски из своей роли. Не подменяй решение тимлида.\n"
+            )
+        else:
+            huddle_line = ""
+            if briefing:
+                huddle_line = (
+                    "Команда уже сверилась. Можешь коротко опереться на заметки коллег, "
+                    "но пишешь от своего лица одним ответом. Не публикуй стенограмму.\n"
+                )
+            system_prompt = (
+                f"{member.persona}\n\n"
+                f"Отвечаешь в командном чате Desk как {member.name}, {member.role}. "
+                f"Зона: {member.focus}.\n"
+                "Язык: русский. Один ответ, без заголовка с именем, без «я языковая модель».\n"
+                f"{huddle_line}"
+                "По делу, без воды. KB используй только если не противоречит сообщению и задаче.\n"
+                "Если данных мало — одно допущение и 1–2 уточнения.\n"
+                "Общий чат без задачи: не выдумывай название задачи.\n"
+                "Если есть бриф траектории — отвечай из него: следующий шаг, балл и незакрытый критерий кода. "
+                "Помоги по коду: куда смотреть и какой случай проверить. Готовый патч и исправленную функцию не пиши.\n"
+                "Если спрашивают, что написать или что делать, дай один конкретный вопрос к коду, а не пересказ брифа.\n"
+                "Слабое закрытие не запрещает следующий спринт: задачу закрывают слабой и спринт завершают с доски. "
+                "Письмо отметит слабый зачёт, оклад не режется. Не говори, что к новому спринту рано из-за слабого зачёта.\n"
+                "Правила доски — спринт, премия, оклад, «к выполнению» — не критерии кода. Их не разбирай как дыру в функции.\n"
+                "Не предлагай закрыть задачу, если шаг — правка или разбор замечаний.\n"
+                "Объём: примерно 80–180 слов.\n"
+            )
 
+        briefing_block = f"Заметки коллег (не показывать дословно):\n{briefing}\n\n" if briefing else ""
         user_prompt = (
-            f"Контекст для модели (только задача или явный режим общего чата):\n{context_text}\n\n"
+            f"Контекст задачи или режим общего чата:\n{context_text}\n\n"
+            f"{briefing_block}"
             f"RAG knowledge documents (excerpts):\n{docs_text}\n\n"
             f"Chat history:\n{history_text}\n\n"
             f"New message:\n{message}\n"
@@ -466,14 +603,12 @@ class BuildChatPromptsSkill:
     def _format_docs(self, docs: list[RetrievedDocument]) -> str:
         if not docs:
             return "(no relevant documents found)"
+        from agent_service.app.application.memory.provenance import format_provenance
+
         formatted: list[str] = []
         for i, item in enumerate(docs, start=1):
-            meta = item.metadata or {}
-            doc_type = meta.get("type", "")
-            source = meta.get("source", "")
-            meta_suffix = ""
-            if doc_type or source:
-                meta_suffix = f" (type={doc_type}, source={source})"
+            provenance = format_provenance(item.metadata)
+            meta_suffix = f" ({provenance})" if provenance else ""
             formatted.append(f"[Doc {i}]{meta_suffix}\n{item.text}")
         return "\n\n".join(formatted)
 
@@ -485,6 +620,7 @@ __all__ = [
     "BuildBugPromptsSkill",
     "AnalyzeCodeQualitySkill",
     "DetectBugsSkill",
+    "BuildAdversarialPromptsSkill",
     "BuildMentorPromptsSkill",
     "RAGRetrieveSkill",
     "BuildRetrievalQuerySkill",

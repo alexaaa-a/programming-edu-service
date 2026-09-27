@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Iterable, Sequence
 
@@ -13,10 +11,9 @@ class ChatMetrics:
 
 
 def count_keywords_found(
-    answer: str,
-    expected_keywords: Iterable[str],
-    *,
-    case_sensitive: bool = False,
+        answer: str,
+        expected_keywords: Iterable[str],
+        case_sensitive: bool = False,
 ) -> tuple[int, int]:
     keywords = [k for k in expected_keywords if isinstance(k, str) and k.strip()]
     total = len(keywords)
@@ -33,20 +30,31 @@ def count_keywords_found(
 
 
 def keyword_match_score(
-    answer: str,
-    expected_keywords: Iterable[str],
-    *,
-    case_sensitive: bool = False,
+        answer: str,
+        expected_keywords: Iterable[str],
+        case_sensitive: bool = False,
 ) -> float:
     found, total = count_keywords_found(answer, expected_keywords, case_sensitive=case_sensitive)
     return (found / total) if total else 0.0
 
 
+def mention_groups_score(text: str, groups: Sequence[Sequence[str]]) -> tuple[float, int, int]:
+    cleaned = [tuple(term for term in group if str(term).strip()) for group in groups]
+    cleaned = [group for group in cleaned if group]
+    if not cleaned:
+        return 1.0, 0, 0
+    haystack = (text or "").lower()
+    hits = 0
+    for group in cleaned:
+        if any(str(term).lower() in haystack for term in group):
+            hits += 1
+    return hits / len(cleaned), hits, len(cleaned)
+
+
 def score_within_range(
-    score: int | float,
-    expected_score_range: Sequence[int],
-    *,
-    inclusive: bool = True,
+        score: int | float,
+        expected_score_range: Sequence[int],
+        inclusive: bool = True,
 ) -> bool:
     if not expected_score_range or len(expected_score_range) != 2:
         return False
@@ -55,13 +63,13 @@ def score_within_range(
     if lo > hi:
         lo, hi = hi, lo
 
-    s = float(score)
+    value = float(score)
     if inclusive:
-        return lo <= s <= hi
-    return lo < s < hi
+        return lo <= value <= hi
+    return lo < value < hi
 
 
-def response_length(answer: str, *, unit: str = "chars") -> int:
+def response_length(answer: str, unit: str = "chars") -> int:
     if unit == "chars":
         return len(answer)
     if unit == "words":

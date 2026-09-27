@@ -6,6 +6,9 @@ from task_service.app.application.dto.project import (
     SprintOrderDTO,
     TaskDTO as TemplateTaskDTO,
 )
+from task_service.app.application.interfaces.admin_role_gateway import (
+    AdminRoleGatewayInterface,
+)
 from task_service.app.application.interfaces.services.token_service import (
     TokenServiceInterface,
 )
@@ -13,6 +16,7 @@ from task_service.app.application.use_case.project.start_project import StartPro
 from task_service.app.application.use_case.project.get_project_templates import GetProjectTemplatesUseCase
 from task_service.app.application.use_case.project.create_project_template import CreateProjectTemplateUseCase
 from task_service.app.application.use_case.project.get_template_for_start import GetTemplateForStartUseCase
+from task_service.app.infrastructure.http.admin_role import can_force_sprint
 from task_service.app.presentation.api.deps import get_current_user_id_or_401
 from task_service.app.presentation.api.v1.project.schema import StartProject, ProjectTemplate, Task, SprintOrder
 
@@ -52,7 +56,7 @@ async def start_project(
 @router.get(
     "/project/templates",
     status_code=status.HTTP_200_OK,
-    response_model=ProjectTemplate,
+    response_model=list[ProjectTemplate],
     description="Получение всех шаблонов проектов, подходящих пользователю",
 )
 async def get_project_templates(
@@ -114,15 +118,23 @@ async def get_template_for_start(
 @router.post(
     "/project/template",
     status_code=status.HTTP_201_CREATED,
-    description="Создание шаблона проекта",
+    description="Создание шаблона проекта (admin/superadmin)",
 )
 async def create_project_template(
         request: Request,
         token_service: FromDishka[TokenServiceInterface],
+        admin_roles: FromDishka[AdminRoleGatewayInterface],
         uc: FromDishka[CreateProjectTemplateUseCase],
         body: ProjectTemplate,
 ):
     get_current_user_id_or_401(request=request, token_service=token_service)
+    authorization = request.headers.get("Authorization") or ""
+    role = await admin_roles.get_my_role(authorization)
+    if not can_force_sprint(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Создание шаблонов доступно только admin/superadmin.",
+        )
 
     dto = ProjectTemplateDTO(
         project_template_id=None,

@@ -18,5 +18,7 @@ export default defineConfig({
       },
     },
   },
-  assetsInclude: ['**/*.svg', '**/*.csv'],
+  worker: {
+    format: "es",
+  },
 })

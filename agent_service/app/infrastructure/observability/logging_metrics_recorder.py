@@ -8,20 +8,20 @@ class LoggingMetricsRecorder(MetricsRecorder):
         self._logger = logger
 
     def increment(
-        self,
-        metric_name: str,
-        value: int = 1,
-        tags: dict[str, str] | None = None,
+            self,
+            metric_name: str,
+            value: int = 1,
+            tags: dict[str, str] | None = None,
     ) -> None:
         status = (tags or {}).get("status")
         if status == "error":
             self._logger.error("metrics.increment metric=%s value=%s tags=%s", metric_name, value, tags)
 
     def record_duration_seconds(
-        self,
-        metric_name: str,
-        duration_seconds: float,
-        tags: dict[str, str] | None = None,
+            self,
+            metric_name: str,
+            duration_seconds: float,
+            tags: dict[str, str] | None = None,
     ) -> None:
         status = (tags or {}).get("status")
         if status == "error":

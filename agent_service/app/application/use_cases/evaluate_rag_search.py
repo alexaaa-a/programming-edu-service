@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 from dataclasses import dataclass
 from typing import Sequence
@@ -35,12 +33,11 @@ class EvaluateRagSearchResult:
 
 class EvaluateRagSearchUseCase:
     def __init__(
-        self,
-        *,
-        memory: MemoryInterface,
-        metrics: MetricsRecorder,
-        logger: logging.Logger,
-        test_cases: Sequence[RagEvalTestCase],
+            self,
+            memory: MemoryInterface,
+            metrics: MetricsRecorder,
+            logger: logging.Logger,
+            test_cases: Sequence[RagEvalTestCase],
     ) -> None:
         self._memory = memory
         self._metrics = metrics

@@ -15,13 +15,13 @@ from user_service.app.config import Settings
 
 
 class RedisProvider(Provider):
-
     @provide(scope=Scope.APP)
     async def setup(self, settings: Settings) -> AsyncIterable[redis.Redis]:
         client = redis.Redis(
             host=settings.redis_settings.host,
             port=settings.redis_settings.port,
             db=settings.redis_settings.db,
+            password=settings.redis_settings.password,
             decode_responses=True
         )
 

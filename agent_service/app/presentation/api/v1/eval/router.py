@@ -36,8 +36,8 @@ def _summary_to_response(summary) -> ReviewEvaluationSummarySchema:  # type: ign
     description="Прогон тестовых сабмишнов и сохранение eval run",
 )
 async def evaluate_review_tests(
-    body: EvaluateReviewTestsRequest,
-    uc: FromDishka[EvaluateReviewTestsUseCase],
+        body: EvaluateReviewTestsRequest,
+        uc: FromDishka[EvaluateReviewTestsUseCase],
 ) -> EvaluateReviewTestsResponse:
     tests = [
         TestReviewSubmission(
@@ -68,8 +68,8 @@ async def evaluate_review_tests(
     description="Сравнение двух eval run по ML метрикам",
 )
 async def compare_review_evaluation_runs(
-    body: CompareReviewEvaluationRunsRequest,
-    uc: FromDishka[CompareReviewEvaluationRunsUseCase],
+        body: CompareReviewEvaluationRunsRequest,
+        uc: FromDishka[CompareReviewEvaluationRunsUseCase],
 ) -> CompareReviewEvaluationRunsResponse:
     result = await uc(base_run_id=body.base_run_id, target_run_id=body.target_run_id)
     return CompareReviewEvaluationRunsResponse(

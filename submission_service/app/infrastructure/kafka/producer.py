@@ -42,26 +42,29 @@ class SubmissionEventProducer:
                 pass
 
     async def produce_submission_created(
-        self,
-        *,
-        submission_id: int,
-        task_id: int,
-        user_id: int,
-        code: str,
-        task_description: str,
+            self,
+            submission_id: int,
+            task_id: int,
+            user_id: int,
+            code: str,
+            task_description: str,
+            attempt: int = 1,
+            previous_feedback: str | None = None,
     ) -> None:
         if not self._producer:
-            self._logger.warning("Kafka producer not started, skipping event")
-            return
+            raise RuntimeError("Kafka producer not started")
         payload = {
             "submission_id": submission_id,
             "task_id": task_id,
             "user_id": user_id,
             "code": code,
             "task_description": task_description,
+            "attempt": attempt,
+            "previous_feedback": previous_feedback,
         }
         topic = self._settings.kafka_settings.topic_submission_created
         try:
             await self._producer.send_and_wait(topic, value=payload)
         except Exception:
             self._logger.exception("Failed to produce submission.created event")
+            raise

@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 from typing import Any
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from agent_service.app.application.observability.metrics_recorder import MetricsRecorder
 
@@ -63,27 +62,25 @@ class PrometheusMetricsRecorder(MetricsRecorder):
         metric_label_keys = self._metric_label_keys(metric)
         if metric_label_keys:
             label_values = self._label_values_for_metric(metric, tags)
-            metric.labels(*label_values).inc(value)  # type: ignore[attr-defined]
+            metric.labels(*label_values).inc(value)
         else:
-            metric.inc(value)  # type: ignore[attr-defined]
+            metric.inc(value)
 
     def record_duration_seconds(
-        self,
-        metric_name: str,
-        duration_seconds: float,
-        tags: dict[str, str] | None = None,
+            self,
+            metric_name: str,
+            duration_seconds: float,
+            tags: dict[str, str] | None = None,
     ) -> None:
         label_keys = self._get_labels(tags)
         metric = self._get_or_create(metric_name, label_keys, kind="histogram")
         metric_label_keys = self._metric_label_keys(metric)
         if metric_label_keys:
             label_values = self._label_values_for_metric(metric, tags)
-            metric.labels(*label_values).observe(duration_seconds)  # type: ignore[attr-defined]
+            metric.labels(*label_values).observe(duration_seconds)
         else:
-            metric.observe(duration_seconds)  # type: ignore[attr-defined]
+            metric.observe(duration_seconds)
 
 
 def render_prometheus_metrics() -> tuple[bytes, str]:
-    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-
     return generate_latest(), CONTENT_TYPE_LATEST

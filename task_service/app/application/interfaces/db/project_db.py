@@ -5,7 +5,6 @@ from task_service.app.application.dto.project import ProjectTemplateDTO
 
 
 class ProjectDBInterface(Protocol):
-
     @abstractmethod
     async def get_all_templates_for_user(
             self,

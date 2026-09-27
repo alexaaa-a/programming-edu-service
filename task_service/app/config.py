@@ -29,6 +29,7 @@ class RedisSettings(BaseSettings):
     port: int
     db: int
     cache_ttl_sec: int = 300
+    password: str
 
     model_config = SettingsConfigDict(env_prefix="TASK_SERVICE_REDIS_")
 
@@ -54,9 +55,42 @@ class KafkaSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="TASK_SERVICE_KAFKA_")
 
 
+class SubmissionGatewaySettings(BaseSettings):
+    url: str = "http://submission_service:8000"
+    timeout_sec: float = 5.0
+
+    model_config = SettingsConfigDict(env_prefix="TASK_SERVICE_SUBMISSION_")
+
+
+class AgentGatewaySettings(BaseSettings):
+    url: str = "http://agent_service:8000"
+    token: str = ""
+    timeout_sec: float = 45.0
+
+    model_config = SettingsConfigDict(env_prefix="TASK_SERVICE_AGENT_")
+
+
+class UserGatewaySettings(BaseSettings):
+    url: str = "http://user_service:8000"
+    timeout_sec: float = 5.0
+
+    model_config = SettingsConfigDict(env_prefix="TASK_SERVICE_USER_")
+
+
+class CloseGateSettings(BaseSettings):
+    pass_score: int = 8
+    max_rounds: int = 2
+
+    model_config = SettingsConfigDict(env_prefix="TASK_SERVICE_CLOSE_")
+
+
 class Settings(BaseSettings):
     mongo_settings: MongoSettings = MongoSettings()  # type: ignore[call-arg]
     redis_settings: RedisSettings = RedisSettings()  # type: ignore[call-arg]
     token_settings: TokenSettings = TokenSettings()  # type: ignore[call-arg]
     logging_settings: LoggingSettings = LoggingSettings()
     kafka_settings: KafkaSettings = KafkaSettings()  # type: ignore[call-arg]
+    submission_gateway_settings: SubmissionGatewaySettings = SubmissionGatewaySettings()
+    agent_gateway_settings: AgentGatewaySettings = AgentGatewaySettings()
+    user_gateway_settings: UserGatewaySettings = UserGatewaySettings()
+    close_gate_settings: CloseGateSettings = CloseGateSettings()

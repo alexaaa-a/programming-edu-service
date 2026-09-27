@@ -17,18 +17,18 @@ def _sprint_from_json(s: str) -> SprintDTO | None:
                 d[key] = datetime.datetime.fromisoformat(
                     d[key].replace("Z", "+00:00")
                 )
-        return SprintDTO(**d)
+        return SprintDTO.from_document(d)
     except (json.JSONDecodeError, TypeError, KeyError):
         return None
 
 
 class CachedSprintDB(SprintDBInterface):
     def __init__(
-        self,
-        inner: SprintDBInterface,
-        cache: CacheInterface,
-        logger: logging.Logger,
-        ttl_sec: int = 300,
+            self,
+            inner: SprintDBInterface,
+            cache: CacheInterface,
+            logger: logging.Logger,
+            ttl_sec: int = 300,
     ) -> None:
         self._inner = inner
         self._cache = cache
@@ -57,14 +57,21 @@ class CachedSprintDB(SprintDBInterface):
         return ok
 
     async def update_sprint(
-        self,
-        user_id: int,
-        old_status: str,
-        new_status: str,
-        completed_at: datetime.datetime | None = None,
+            self,
+            user_id: int,
+            old_status: str,
+            new_status: str,
+            completed_at: datetime.datetime | None = None,
+            close_mode: str | None = None,
+            sprint_id: int | None = None,
     ) -> bool:
         ok = await self._inner.update_sprint(
-            user_id, old_status, new_status, completed_at
+            user_id,
+            old_status,
+            new_status,
+            completed_at,
+            close_mode,
+            sprint_id,
         )
         if ok:
             await self._cache.delete(self._key(user_id))

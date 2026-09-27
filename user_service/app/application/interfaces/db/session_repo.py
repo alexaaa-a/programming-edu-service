@@ -3,7 +3,6 @@ from typing import Protocol
 
 
 class SessionRepositoryInterface(Protocol):
-
     @abstractmethod
     async def save_refresh_token(self, refresh_token: str, user_id: int) -> bool:
         raise NotImplementedError

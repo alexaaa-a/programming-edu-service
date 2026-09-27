@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import time
 from dataclasses import dataclass
 from typing import Callable
@@ -10,7 +8,7 @@ class Timer:
     start_time: float
 
     @staticmethod
-    def start() -> Timer:
+    def start() -> "Timer":
         return Timer(start_time=time.perf_counter())
 
     @property

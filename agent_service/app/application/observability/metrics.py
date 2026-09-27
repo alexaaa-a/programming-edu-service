@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import functools
 import logging
 import time
@@ -24,17 +22,16 @@ def _stringify_tags(tags: dict[str, Any] | None) -> dict[str, str]:
 
 
 def instrument_async(
-    metrics: MetricsRecorder,
-    *,
-    component: str,
-    operation: str,
-    tags: dict[str, Any] | None = None,
-    request_metric_name: str = "request_count_total",
-    error_metric_name: str = "error_count_total",
-    latency_metric_name: str = "latency_seconds",
-    logger: logging.Logger | None = None,
-    log_success: bool = False,
-    log_error: bool = True,
+        metrics: MetricsRecorder,
+        component: str,
+        operation: str,
+        tags: dict[str, Any] | None = None,
+        request_metric_name: str = "request_count_total",
+        error_metric_name: str = "error_count_total",
+        latency_metric_name: str = "latency_seconds",
+        logger: logging.Logger | None = None,
+        log_success: bool = False,
+        log_error: bool = True,
 ) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
     base_tags = {
         **_stringify_tags(tags),

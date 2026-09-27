@@ -15,7 +15,7 @@ class LogoutUseCase:
         self.user_repo = user_repo
 
     async def __call__(self, refresh_token: str) -> bool:
-        user_id = self.token_service.decode_token(refresh_token)
+        user_id = self.token_service.decode_refresh_token(refresh_token)
         if not user_id:
             return False
 
@@ -23,5 +23,8 @@ class LogoutUseCase:
         if not user_db:
             return False
 
-        delete_refresh = await self.session_repo.delete_refresh_token(user_id)
-        return delete_refresh
+        stored_refresh = await self.session_repo.get_refresh_token(user_id)
+        if stored_refresh is None or stored_refresh != refresh_token:
+            return False
+
+        return await self.session_repo.delete_refresh_token(user_id)

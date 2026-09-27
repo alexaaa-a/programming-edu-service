@@ -1,6 +1,6 @@
 import datetime
 from abc import abstractmethod
-from typing import Protocol, Any
+from typing import Protocol
 
 from task_service.app.application.dto.task import TaskDTO
 
@@ -21,6 +21,9 @@ class TaskDBInterface(Protocol):
             task_id: int,
             new_status: str,
             completed_at: datetime.datetime | None = None,
+            close_quality: str | None = None,
+            user_id: int | None = None,
+            close_note: str | None = None,
     ) -> bool:
         raise NotImplementedError
 
@@ -30,4 +33,8 @@ class TaskDBInterface(Protocol):
 
     @abstractmethod
     async def get_task_by_task_id(self, task_id: int) -> TaskDTO | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def delete_tasks_by_sprint(self, sprint_id: int, user_id: int) -> bool:
         raise NotImplementedError

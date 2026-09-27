@@ -1,0 +1,46 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cluster-autoscaler
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes.github.io/autoscaler
+    chart: cluster-autoscaler
+    targetRevision: "9.43.2"
+    helm:
+      valuesObject:
+        autoDiscovery:
+          clusterName: minikube
+        cloudProvider: aws
+        awsRegion: eu-central-1
+        rbac:
+          create: true
+          serviceAccount:
+            create: true
+            name: cluster-autoscaler
+            annotations:
+              eks.amazonaws.com/role-arn: "arn:aws:iam::665263374282:role/cluster-autoscaler"
+        extraArgs:
+          balance-similar-node-groups: "true"
+          skip-nodes-with-system-pods: "false"
+          scale-down-delay-after-add: 5m
+          scale-down-unneeded-time: 5m
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            memory: 256Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

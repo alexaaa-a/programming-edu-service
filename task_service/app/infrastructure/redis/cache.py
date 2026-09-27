@@ -8,10 +8,10 @@ from task_service.app.config import Settings
 
 class RedisCache(CacheInterface):
     def __init__(
-        self,
-        redis_client: redis.Redis,
-        logger: logging.Logger,
-        settings: Settings,
+            self,
+            redis_client: redis.Redis,
+            logger: logging.Logger,
+            settings: Settings,
     ) -> None:
         self.redis_client = redis_client
         self.logger = logger
@@ -29,10 +29,10 @@ class RedisCache(CacheInterface):
             return None
 
     async def set(
-        self,
-        key: str,
-        value: str,
-        ttl_sec: int | None = None,
+            self,
+            key: str,
+            value: str,
+            ttl_sec: int | None = None,
     ) -> bool:
         try:
             ex = ttl_sec if ttl_sec is not None else self._default_ttl

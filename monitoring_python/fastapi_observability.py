@@ -23,6 +23,9 @@ def _configure_prometheus(app: FastAPI) -> None:
 def _configure_otel(app: FastAPI, *, service_name: str) -> None:
     if os.getenv("OTEL_SDK_DISABLED", "").lower() in ("1", "true", "yes"):
         return
+    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
+    if not endpoint:
+        return
     try:
         from opentelemetry import trace
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -34,7 +37,6 @@ def _configure_otel(app: FastAPI, *, service_name: str) -> None:
         logger.warning("OpenTelemetry packages not installed; tracing disabled")
         return
 
-    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
     insecure = os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "true").lower() in ("1", "true", "yes")
 
     resource = Resource.create(

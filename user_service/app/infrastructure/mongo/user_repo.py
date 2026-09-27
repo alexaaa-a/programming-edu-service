@@ -71,15 +71,14 @@ class UserRepository(UserRepositoryInterface):
             return False
 
     async def update_profile(
-        self,
-        user_id: int,
-        *,
-        name: str | None = None,
-        surname: str | None = None,
-        username: str | None = None,
-        email: str | None = None,
-        direction: str | None = None,
-        level: str | None = None,
+            self,
+            user_id: int,
+            name: str | None = None,
+            surname: str | None = None,
+            username: str | None = None,
+            email: str | None = None,
+            direction: str | None = None,
+            level: str | None = None,
     ) -> bool:
         try:
             update: dict = {}

@@ -25,7 +25,7 @@ async def liveness() -> dict[str, str]:
     description="Readiness probe - проверяет готовность принимать трафик",
 )
 async def readiness(
-    uc: FromDishka[HealthCheckUseCase],
+        uc: FromDishka[HealthCheckUseCase],
 ) -> dict[str, str]:
     await uc()
     return {"status": "ready"}
@@ -37,7 +37,7 @@ async def readiness(
     description="Kubernetes startup probe - проверяет готовность при старте",
 )
 async def startup(
-    uc: FromDishka[HealthCheckUseCase],
+        uc: FromDishka[HealthCheckUseCase],
 ) -> dict[str, str]:
     await uc()
     return {"status": "started"}

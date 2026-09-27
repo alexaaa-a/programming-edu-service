@@ -26,10 +26,10 @@ router = APIRouter(route_class=DishkaRoute)
     description="Частичное обновление профиля. Требуется access-токен.",
 )
 async def patch_me(
-    request: Request,
-    body: UpdateProfileBody,
-    token_service: FromDishka[TokenServiceInterface],
-    uc: FromDishka[UpdateProfileUseCase],
+        request: Request,
+        body: UpdateProfileBody,
+        token_service: FromDishka[TokenServiceInterface],
+        uc: FromDishka[UpdateProfileUseCase],
 ) -> None:
     user_id = get_current_user_id_or_401(request, token_service)
     result = await uc(
@@ -54,10 +54,10 @@ async def patch_me(
     description="Смена пароля. Требуется access-токен и текущий пароль.",
 )
 async def change_password(
-    request: Request,
-    body: ChangePasswordBody,
-    token_service: FromDishka[TokenServiceInterface],
-    uc: FromDishka[ChangePasswordUseCase],
+        request: Request,
+        body: ChangePasswordBody,
+        token_service: FromDishka[TokenServiceInterface],
+        uc: FromDishka[ChangePasswordUseCase],
 ) -> None:
     user_id = get_current_user_id_or_401(request, token_service)
     result = await uc(
@@ -113,10 +113,10 @@ async def get_me(
     description="Назначить пользователя админом. Доступно только superadmin.",
 )
 async def add_admin(
-    request: Request,
-    body: AddAdminBody,
-    token_service: FromDishka[TokenServiceInterface],
-    uc: FromDishka[AddAdminUseCase],
+        request: Request,
+        body: AddAdminBody,
+        token_service: FromDishka[TokenServiceInterface],
+        uc: FromDishka[AddAdminUseCase],
 ) -> None:
     actor_user_id = get_current_user_id_or_401(request, token_service)
     result = await uc(actor_user_id=actor_user_id, target_user_id=body.user_id)
@@ -155,9 +155,9 @@ async def add_admin(
     description="Получить список админов и их ролей (из кэша). Доступно только superadmin.",
 )
 async def get_admins(
-    request: Request,
-    token_service: FromDishka[TokenServiceInterface],
-    uc: FromDishka[GetAdminsUseCase],
+        request: Request,
+        token_service: FromDishka[TokenServiceInterface],
+        uc: FromDishka[GetAdminsUseCase],
 ) -> list[AdminShow]:
     actor_user_id = get_current_user_id_or_401(request, token_service)
     result = await uc(actor_user_id=actor_user_id)
@@ -176,9 +176,9 @@ async def get_admins(
     description="Получить роль текущего пользователя в панели администрирования",
 )
 async def get_my_admin_role(
-    request: Request,
-    token_service: FromDishka[TokenServiceInterface],
-    uc: FromDishka[GetMyAdminRoleUseCase],
+        request: Request,
+        token_service: FromDishka[TokenServiceInterface],
+        uc: FromDishka[GetMyAdminRoleUseCase],
 ) -> MyAdminRoleShow:
     actor_user_id = get_current_user_id_or_401(request, token_service)
     role = await uc(actor_user_id)
@@ -191,10 +191,10 @@ async def get_my_admin_role(
     description="Удалить роль admin у пользователя. Доступно только superadmin.",
 )
 async def remove_admin(
-    request: Request,
-    user_id: int,
-    token_service: FromDishka[TokenServiceInterface],
-    uc: FromDishka[RemoveAdminUseCase],
+        request: Request,
+        user_id: int,
+        token_service: FromDishka[TokenServiceInterface],
+        uc: FromDishka[RemoveAdminUseCase],
 ) -> None:
     actor_user_id = get_current_user_id_or_401(request, token_service)
     result = await uc(actor_user_id=actor_user_id, target_user_id=user_id)

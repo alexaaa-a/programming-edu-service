@@ -16,7 +16,7 @@ class RefreshUseCase:
         self.token_service = token_service
 
     async def __call__(self, refresh_token: str) -> AuthResultDTO:
-        user_id = self.token_service.decode_token(refresh_token)
+        user_id = self.token_service.decode_refresh_token(refresh_token)
         if not user_id:
             return AuthResultDTO(
                 access_token=None,

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 
 from agent_service.app.application.eval.interfaces.eval_repository import (
@@ -17,17 +15,15 @@ class CompareReviewEvaluationRunsResult:
 
 class CompareReviewEvaluationRunsUseCase:
     def __init__(
-        self,
-        *,
-        eval_run_repository: EvalRunRepository,
+            self,
+            eval_run_repository: EvalRunRepository,
     ) -> None:
         self._eval_run_repository = eval_run_repository
 
     async def __call__(
-        self,
-        *,
-        base_run_id: str,
-        target_run_id: str,
+            self,
+            base_run_id: str,
+            target_run_id: str,
     ) -> CompareReviewEvaluationRunsResult:
         base = await self._eval_run_repository.get_run(base_run_id)
         target = await self._eval_run_repository.get_run(target_run_id)

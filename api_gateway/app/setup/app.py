@@ -65,12 +65,11 @@ class StickyBalancer:
         self._rr = RoundRobinBalancer()
 
     def pick(
-        self,
-        service_key: str,
-        targets: list[str],
-        *,
-        sticky_enabled: bool,
-        sticky_key: str | None,
+            self,
+            service_key: str,
+            targets: list[str],
+            sticky_enabled: bool,
+            sticky_key: str | None,
     ) -> str:
         if not sticky_enabled or not sticky_key or len(targets) <= 1:
             return self._rr.pick(service_key, targets)
@@ -80,7 +79,7 @@ class StickyBalancer:
 
 
 class InMemoryFixedWindowRateLimiter:
-    def __init__(self, *, enabled: bool) -> None:
+    def __init__(self, enabled: bool) -> None:
         self._enabled = enabled
         self._buckets: dict[str, deque[float]] = defaultdict(deque)
 
@@ -107,11 +106,11 @@ class InMemoryFixedWindowRateLimiter:
 class RedisFixedWindowRateLimiter:
     KEY_PREFIX = "gateway:rate_limit"
 
-    def __init__(self, client: redis.Redis, *, enabled: bool) -> None:
+    def __init__(self, client: redis.Redis, enabled: bool) -> None:
         self._client = client
         self._enabled = enabled
 
-    async def allow(self, key: str, *, max_requests: int, window_sec: int) -> tuple[bool, int]:
+    async def allow(self, key: str, max_requests: int, window_sec: int) -> tuple[bool, int]:
         if not self._enabled:
             return True, 0
 
@@ -133,15 +132,14 @@ class RedisFixedWindowRateLimiter:
 
 class CompositeRateLimiter:
     def __init__(
-        self,
-        *,
-        memory: InMemoryFixedWindowRateLimiter,
-        redis_limiter: RedisFixedWindowRateLimiter | None,
+            self,
+            memory: InMemoryFixedWindowRateLimiter,
+            redis_limiter: RedisFixedWindowRateLimiter | None,
     ) -> None:
         self._memory = memory
         self._redis = redis_limiter
 
-    async def allow(self, key: str, *, max_requests: int, window_sec: int) -> tuple[bool, int]:
+    async def allow(self, key: str, max_requests: int, window_sec: int) -> tuple[bool, int]:
         if self._redis is not None:
             try:
                 return await self._redis.allow(
@@ -154,7 +152,7 @@ class CompositeRateLimiter:
         return self._memory.allow(key, max_requests=max_requests, window_sec=window_sec)
 
 
-def _forward_headers(request: Request, *, client_host: str | None) -> dict[str, str]:
+def _forward_headers(request: Request, client_host: str | None) -> dict[str, str]:
     excluded = {
         "host",
         "content-length",
@@ -214,12 +212,11 @@ def _sticky_key_from_request(request: Request, service_key: str) -> str | None:
 
 
 async def _proxy_request(
-    *,
-    request: Request,
-    backend_base_url: str,
-    backend_path: str,
-    session: aiohttp.ClientSession,
-    timeout: ClientTimeout,
+        request: Request,
+        backend_base_url: str,
+        backend_path: str,
+        session: aiohttp.ClientSession,
+        timeout: ClientTimeout,
 ) -> Response:
     backend_url = f"{backend_base_url.rstrip('/')}{backend_path}"
     query_params = list(request.query_params.multi_items())

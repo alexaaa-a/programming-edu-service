@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Dict
 
 from agent_service.app.application.eval.interfaces.eval_repository import (

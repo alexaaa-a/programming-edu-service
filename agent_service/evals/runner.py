@@ -1,7 +1,5 @@
-from __future__ import annotations
-
-import asyncio
 import argparse
+import asyncio
 import json
 import logging
 import os
@@ -10,21 +8,16 @@ from datetime import datetime, timezone
 from typing import Any
 
 from agent_service.evals.evaluator import evaluate_chat_from_dataset, evaluate_review_from_dataset
+from agent_service.evals.offline import evaluate_offline_cases
 
 
 @dataclass(frozen=True, slots=True)
 class RunnerConfig:
     dataset_path: str
-    base_url: str
-    timeout_sec: int
+    suite: str
     pretty: bool
     output_path: str | None
     max_error_examples: int
-
-
-def _load_dataset(path: str) -> dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
 
 
 def _setup_logging(verbosity: int) -> None:
@@ -33,193 +26,167 @@ def _setup_logging(verbosity: int) -> None:
         level = logging.INFO
     elif verbosity >= 2:
         level = logging.DEBUG
-
     logging.basicConfig(level=level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
 def _default_report_path() -> str:
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     reports_dir = os.path.join(os.path.dirname(__file__), "reports")
     os.makedirs(reports_dir, exist_ok=True)
-    return os.path.join(reports_dir, f"report_{ts}.json")
+    return os.path.join(reports_dir, f"report_{stamp}.json")
 
 
-def _print_review_summary(report: dict[str, Any], *, max_error_examples: int) -> None:
-    review = report.get("review_eval") or {}
-    cases: list[dict[str, Any]] = list(review.get("cases") or [])
-    aggregated: dict[str, Any] = dict(review.get("aggregated") or {})
+def _print_offline(report: dict[str, Any]) -> None:
+    block = report.get("offline_eval") or {}
+    agg = dict(block.get("aggregated") or {})
+    cases = list(block.get("cases") or [])
+    print("\nOffline eval (tools + rubric, no LLM)")
+    print(f"- cases: {agg.get('total_cases', 0)}")
+    print(f"- pass_rate: {float(agg.get('pass_rate') or 0) * 100:.1f}%")
+    failed = [c for c in cases if not c.get("passed")]
+    if not failed:
+        print("- failures: none")
+        return
+    print("- failures:")
+    for case in failed:
+        print(f"  - {case.get('id')}: {case.get('failures')}")
 
+
+def _print_review(report: dict[str, Any], max_error_examples: int) -> None:
+    block = report.get("review_eval") or {}
+    if block.get("error"):
+        print(f"\nReview eval skipped: {block['error']}")
+        return
+    cases = list(block.get("cases") or [])
+    agg = dict(block.get("aggregated") or {})
     if not cases:
-        print("Review eval: no cases.")
+        print("\nReview eval: no cases.")
         return
-
-    scores: list[int] = []
-    for c in cases:
-        actual_review = c.get("actual_review") or {}
-        score = actual_review.get("score")
-        if isinstance(score, int):
-            scores.append(score)
-
-    avg_score = (sum(scores) / len(scores)) if scores else None
-
-    accuracy = aggregated.get("score_within_range_rate")
-    keyword_mean = aggregated.get("keyword_match_score_mean")
-    resp_len_mean = aggregated.get("response_length_chars_mean")
-
-    print("\nReview eval summary")
+    print("\nReview eval (LLM pipeline)")
     print(f"- cases: {len(cases)}")
-    if avg_score is not None:
-        print(f"- average score: {avg_score:.2f}")
-    if isinstance(accuracy, (int, float)):
-        print(f"- accuracy (score within range): {float(accuracy) * 100:.1f}%")
-    if isinstance(keyword_mean, (int, float)):
-        print(f"- keyword_match_score_mean: {float(keyword_mean):.3f}")
-    if isinstance(resp_len_mean, (int, float)):
-        print(f"- response_length_chars_mean: {float(resp_len_mean):.0f}")
-
-    errors = [
-        c
-        for c in cases
-        if not (c.get("metrics") or {}).get("score_within_range", False)
-    ]
+    print(f"- pass_rate: {float(agg.get('pass_rate') or 0) * 100:.1f}%")
+    print(f"- score in range: {float(agg.get('score_within_range_rate') or 0) * 100:.1f}%")
+    print(f"- mention groups: {float(agg.get('mention_groups_score_mean') or 0):.3f}")
+    errors = [c for c in cases if not (c.get("metrics") or {}).get("passed")]
     if not errors:
-        print("- error examples: none (all cases within range)")
+        print("- failures: none")
         return
-
-    print("- error examples (showing up to %d):" % max_error_examples)
-    for c in errors[:max_error_examples]:
-        cid = c.get("id")
-        expected = c.get("expected") or {}
-        expected_range = expected.get("expected_score_range")
-        actual = (c.get("actual_review") or {}).get("score")
-        m = c.get("metrics") or {}
-        km = m.get("keyword_match_score")
-        fb = (c.get("actual_review") or {}).get("feedback") or ""
-        fb_short = fb.replace("\n", " ").strip()[:140]
-
-        print(f"  - case {cid}: expected {expected_range}, actual score {actual}, keyword_match={km:.3f}")
-        if fb_short:
-            print(f"    feedback: {fb_short}...")
+    print(f"- failures (up to {max_error_examples}):")
+    for case in errors[:max_error_examples]:
+        expected = case.get("expected") or {}
+        actual = (case.get("actual_review") or {}).get("score")
+        print(
+            f"  - {case.get('id')}: score {actual}, expected {expected.get('expected_score_range')}"
+        )
 
 
-def _print_chat_summary(report: dict[str, Any], *, max_error_examples: int) -> None:
-    chat = report.get("chat_eval") or {}
-    cases: list[dict[str, Any]] = list(chat.get("cases") or [])
-    aggregated: dict[str, Any] = dict(chat.get("aggregated") or {})
-
+def _print_chat(report: dict[str, Any], max_error_examples: int) -> None:
+    block = report.get("chat_eval") or {}
+    if block.get("error"):
+        print(f"\nChat eval skipped: {block['error']}")
+        return
+    cases = list(block.get("cases") or [])
+    agg = dict(block.get("aggregated") or {})
     if not cases:
-        print("Chat eval: no cases.")
+        print("\nChat eval: no cases.")
         return
-
-    relevance_mean = aggregated.get("keyword_match_score_mean")
-    accuracy = aggregated.get("key_ideas_present_rate")
-    resp_len_mean = aggregated.get("response_length_chars_mean")
-
-    print("\nChat eval summary")
+    print("\nChat eval (team router + personas)")
     print(f"- cases: {len(cases)}")
-    if isinstance(relevance_mean, (int, float)):
-        print(f"- avg keyword_match_score (relevance): {float(relevance_mean):.3f}")
-    if isinstance(accuracy, (int, float)):
-        print(f"- accuracy (has key ideas): {float(accuracy) * 100:.1f}%")
-    if isinstance(resp_len_mean, (int, float)):
-        print(f"- response_length_chars_mean: {float(resp_len_mean):.0f}")
-
-    errors = [
-        c
-        for c in cases
-        if not (c.get("metrics") or {}).get("key_ideas_present", False)
-    ]
+    print(f"- pass_rate: {float(agg.get('pass_rate') or 0) * 100:.1f}%")
+    print(f"- speaker match: {float(agg.get('speaker_match_rate') or 0) * 100:.1f}%")
+    print(f"- mention groups: {float(agg.get('mention_groups_score_mean') or 0):.3f}")
+    errors = [c for c in cases if not (c.get("metrics") or {}).get("passed")]
     if not errors:
-        print("- error examples: none (all cases contain key ideas)")
+        print("- failures: none")
         return
-
-    print("- error examples (showing up to %d):" % max_error_examples)
-    for c in errors[:max_error_examples]:
-        cid = c.get("id")
-        expected = c.get("expected") or {}
-        expected_keywords = expected.get("expected_keywords") or []
-        actual = c.get("actual_answer") or ""
-        m = c.get("metrics") or {}
-        km = m.get("keyword_match_score")
-        print(f"  - case {cid}: expected_keywords={expected_keywords}, keyword_match={km:.3f}")
-        snippet = str(actual).replace("\n", " ").strip()[:160]
-        if snippet:
-            print(f"    answer: {snippet}...")
+    print(f"- failures (up to {max_error_examples}):")
+    for case in errors[:max_error_examples]:
+        print(
+            f"  - {case.get('id')}: speaker {case.get('actual_speaker')} "
+            f"mode {case.get('actual_mode')}"
+        )
 
 
 def run(config: RunnerConfig) -> dict[str, Any]:
     logger = logging.getLogger("evals.runner")
-    _ = (config.base_url, config.timeout_sec)
     report: dict[str, Any] = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "dataset_path": config.dataset_path,
-        "base_url": config.base_url,
-        "chat": None,
+        "suite": config.suite,
+        "offline_eval": None,
         "review_eval": None,
+        "chat_eval": None,
     }
 
-    async def _run_all() -> dict[str, Any]:
-        logger.info("Running chat eval (in-process use case calls)")
-        chat_eval = await evaluate_chat_from_dataset(dataset_path=config.dataset_path, logger=logger)
+    if config.suite in {"offline", "all"}:
+        report["offline_eval"] = evaluate_offline_cases()
 
-        logger.info("Running review eval (in-process use case calls)")
-        review_eval = await evaluate_review_from_dataset(dataset_path=config.dataset_path, logger=logger)
+    if config.suite in {"llm", "all"}:
 
-        return {"chat_eval": chat_eval, "review_eval": review_eval}
+        async def _llm() -> dict[str, Any]:
+            out: dict[str, Any] = {}
+            try:
+                out["review_eval"] = await evaluate_review_from_dataset(
+                    dataset_path=config.dataset_path,
+                    logger=logger,
+                )
+            except Exception as exc:
+                logger.exception("review eval failed")
+                out["review_eval"] = {"type": "review_eval", "error": str(exc), "cases": []}
+            try:
+                out["chat_eval"] = await evaluate_chat_from_dataset(
+                    dataset_path=config.dataset_path,
+                    logger=logger,
+                )
+            except Exception as exc:
+                logger.exception("chat eval failed")
+                out["chat_eval"] = {"type": "chat_eval", "error": str(exc), "cases": []}
+            return out
 
-    results = asyncio.run(_run_all())
-    report["chat_eval"] = results["chat_eval"]
-    report["review_eval"] = results["review_eval"]
+        llm = asyncio.run(_llm())
+        report["review_eval"] = llm.get("review_eval")
+        report["chat_eval"] = llm.get("chat_eval")
 
     output_path = config.output_path or _default_report_path()
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, ensure_ascii=False, indent=2 if config.pretty else None)
+    with open(output_path, "w", encoding="utf-8") as handle:
+        json.dump(report, handle, ensure_ascii=False, indent=2 if config.pretty else None)
     logger.info("Saved report: %s", output_path)
 
-    _print_chat_summary(report, max_error_examples=config.max_error_examples)
-    _print_review_summary(report, max_error_examples=config.max_error_examples)
-
+    if report.get("offline_eval"):
+        _print_offline(report)
+    if config.suite in {"llm", "all"}:
+        _print_review(report, max_error_examples=config.max_error_examples)
+        _print_chat(report, max_error_examples=config.max_error_examples)
     return report
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run external evaluation scenarios for programming-edu-service.")
+    parser = argparse.ArgumentParser(description="Eval suites for programming-edu-service agents.")
     parser.add_argument(
         "--dataset",
         default=os.path.join(os.path.dirname(__file__), "dataset", "submissions.json"),
-        help="Path to dataset JSON (default: evals/dataset/submissions.json).",
     )
     parser.add_argument(
-        "--base-url",
-        default=os.environ.get("AGENT_SERVICE_BASE_URL", "http://localhost:8000/api"),
-        help="Base URL to agent_service, including /api (default: env AGENT_SERVICE_BASE_URL or http://localhost:8000/api).",
+        "--suite",
+        choices=("offline", "llm", "all"),
+        default="offline",
+        help="offline = tools+rubric without LLM (default). llm = live pipeline. all = both.",
     )
-    parser.add_argument("--timeout-sec", type=int, default=60, help="HTTP timeout in seconds.")
-    parser.add_argument("--pretty", action="store_true", help="Pretty-print saved output JSON.")
-    parser.add_argument("--output", default=None, help="Optional path to write report JSON.")
-    parser.add_argument(
-        "--max-error-examples",
-        type=int,
-        default=5,
-        help="Max number of cases to show when score is outside expected range.",
-    )
-    parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase logging verbosity.")
-
+    parser.add_argument("--pretty", action="store_true")
+    parser.add_argument("--output", default=None)
+    parser.add_argument("--max-error-examples", type=int, default=5)
+    parser.add_argument("-v", "--verbose", action="count", default=0)
     args = parser.parse_args()
     _setup_logging(args.verbose)
-
-    config = RunnerConfig(
-        dataset_path=args.dataset,
-        base_url=args.base_url,
-        timeout_sec=args.timeout_sec,
-        pretty=args.pretty,
-        output_path=args.output,
-        max_error_examples=args.max_error_examples,
+    run(
+        RunnerConfig(
+            dataset_path=args.dataset,
+            suite=args.suite,
+            pretty=args.pretty,
+            output_path=args.output,
+            max_error_examples=args.max_error_examples,
+        )
     )
-    report = run(config)
-    if config.pretty:
-        print("\nFull report JSON:")
-        print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

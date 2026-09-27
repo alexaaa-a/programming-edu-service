@@ -40,10 +40,10 @@ class ReviewMetricsCalculatorProvider(Provider):
 class EvaluateReviewTestsUseCaseProvider(Provider):
     @provide(scope=Scope.REQUEST)
     def evaluate_review_tests_use_case(
-        self,
-        review_submission_use_case: ReviewSubmissionUseCase,
-        eval_run_repository: EvalRunRepository,
-        review_metrics_calculator: ReviewMetricsCalculator,
+            self,
+            review_submission_use_case: ReviewSubmissionUseCase,
+            eval_run_repository: EvalRunRepository,
+            review_metrics_calculator: ReviewMetricsCalculator,
     ) -> EvaluateReviewTestsUseCase:
         return EvaluateReviewTestsUseCase(
             review_submission_use_case=review_submission_use_case,
@@ -55,8 +55,8 @@ class EvaluateReviewTestsUseCaseProvider(Provider):
 class CompareReviewEvaluationRunsUseCaseProvider(Provider):
     @provide(scope=Scope.REQUEST)
     def compare_review_evaluation_runs_use_case(
-        self,
-        eval_run_repository: EvalRunRepository,
+            self,
+            eval_run_repository: EvalRunRepository,
     ) -> CompareReviewEvaluationRunsUseCase:
         return CompareReviewEvaluationRunsUseCase(eval_run_repository=eval_run_repository)
 
@@ -64,13 +64,11 @@ class CompareReviewEvaluationRunsUseCaseProvider(Provider):
 class EvaluateRagSearchUseCaseProvider(Provider):
     @provide(scope=Scope.APP)
     def evaluate_rag_search_use_case(
-        self,
-        memory: MemoryInterface,
-        metrics_recorder: MetricsRecorder,
-        logger: logging.Logger,
+            self,
+            memory: MemoryInterface,
+            metrics_recorder: MetricsRecorder,
+            logger: logging.Logger,
     ) -> EvaluateRagSearchUseCase:
-        # A tiny set of offline "smoke" queries to verify RAG wiring + metadata.
-        # You can replace these with more domain-specific cases later.
         test_cases = [
             RagEvalTestCase(
                 query="Как улучшить читаемость кода и следовать best practices в Python?",

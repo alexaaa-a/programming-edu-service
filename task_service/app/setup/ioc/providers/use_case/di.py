@@ -1,5 +1,6 @@
 from dishka import provide_all, Provider, Scope
 
+from task_service.app.application.use_case.tasks.submit_peer_review import SubmitPeerReviewUseCase
 from task_service.app.application.use_case.tasks.update_task_status import UpdateTaskStatusUseCase
 from task_service.app.application.use_case.tasks.get_board import GetBoardUseCase
 from task_service.app.application.use_case.well_known.healthcheck import HealthCheckUseCase
@@ -9,6 +10,8 @@ from task_service.app.application.use_case.project.get_project_templates import 
 from task_service.app.application.use_case.project.start_project import StartProjectUseCase
 from task_service.app.application.use_case.project.get_template_for_start import GetTemplateForStartUseCase
 from task_service.app.application.use_case.project.create_project_template import CreateProjectTemplateUseCase
+from task_service.app.application.use_case.career.get_career import GetCareerUseCase
+from task_service.app.application.use_case.career.spend_bonus import SpendBonusUseCase
 
 
 class UseCaseProvider(Provider):
@@ -16,6 +19,7 @@ class UseCaseProvider(Provider):
 
     interactors = provide_all(
         UpdateTaskStatusUseCase,
+        SubmitPeerReviewUseCase,
         GetProjectTemplatesUseCase,
         GetBoardUseCase,
         GetCurrentSprintUseCase,
@@ -24,4 +28,6 @@ class UseCaseProvider(Provider):
         StartProjectUseCase,
         GetTemplateForStartUseCase,
         CreateProjectTemplateUseCase,
+        GetCareerUseCase,
+        SpendBonusUseCase,
     )

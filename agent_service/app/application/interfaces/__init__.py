@@ -3,6 +3,10 @@ from agent_service.app.application.interfaces.health_checker import HealthDepend
 from agent_service.app.application.interfaces.llm import LLMInterface
 from agent_service.app.application.interfaces.memory import MemoryInterface
 from agent_service.app.application.interfaces.retrieve_cache import RetrieveCache
+from agent_service.app.application.interfaces.run_checkpoint_store import RunCheckpointStore
+from agent_service.app.application.interfaces.trajectory_gateway import (
+    TrajectoryGatewayInterface,
+)
 
 __all__ = [
     "ChatHistoryRepository",
@@ -10,5 +14,6 @@ __all__ = [
     "LLMInterface",
     "MemoryInterface",
     "RetrieveCache",
+    "RunCheckpointStore",
+    "TrajectoryGatewayInterface",
 ]
-

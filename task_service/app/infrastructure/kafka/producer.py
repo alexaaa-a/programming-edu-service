@@ -43,20 +43,19 @@ class TaskEventProducer:
 
     async def _send(self, topic: str, payload: dict) -> None:
         if not self._producer:
-            self._logger.warning("Kafka producer not started, skipping event")
-            return
+            raise RuntimeError("Kafka producer not started")
         try:
             await self._producer.send_and_wait(topic, value=payload)
         except Exception:
             self._logger.exception("Failed to produce task event")
+            raise
 
     async def produce_task_created(
-        self,
-        *,
-        task_id: int,
-        user_id: int,
-        status: str,
-        task_description: str,
+            self,
+            task_id: int,
+            user_id: int,
+            status: str,
+            task_description: str,
     ) -> None:
         await self._send(
             self._settings.kafka_settings.topic_task_created,
@@ -69,19 +68,22 @@ class TaskEventProducer:
         )
 
     async def produce_task_status_updated(
-        self,
-        *,
-        task_id: int,
-        user_id: int,
-        status: str,
-        task_description: str,
+            self,
+            task_id: int,
+            user_id: int,
+            status: str,
+            task_description: str,
+            round_limit: int | None = None,
     ) -> None:
+        payload = {
+            "task_id": task_id,
+            "user_id": user_id,
+            "status": status,
+            "task_description": task_description,
+        }
+        if round_limit is not None:
+            payload["round_limit"] = round_limit
         await self._send(
             self._settings.kafka_settings.topic_task_status_updated,
-            {
-                "task_id": task_id,
-                "user_id": user_id,
-                "status": status,
-                "task_description": task_description,
-            },
+            payload,
         )

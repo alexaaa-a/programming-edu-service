@@ -9,22 +9,23 @@ from submission_service.app.config import Settings
 
 class TaskCacheDB(TaskCacheInterface):
     def __init__(
-        self,
-        client: AsyncIOMotorClient[Any],
-        settings: Settings,
-        logger: logging.Logger,
+            self,
+            client: AsyncIOMotorClient[Any],
+            settings: Settings,
+            logger: logging.Logger,
     ) -> None:
         self._client = client[settings.mongo_settings.name]
         self._logger = logger
         self._coll = self._client["task_cache"]
 
     async def upsert_task(
-        self,
-        task_id: int,
-        user_id: int,
-        status: str,
-        task_description: str | None = None,
-    ) -> None:
+            self,
+            task_id: int,
+            user_id: int,
+            status: str,
+            task_description: str | None = None,
+            round_limit: int | None = None,
+    ) -> bool:
         try:
             update: dict[str, Any] = {
                 "task_id": task_id,
@@ -33,14 +34,26 @@ class TaskCacheDB(TaskCacheInterface):
             }
             if task_description is not None:
                 update["task_description"] = task_description
+            if round_limit is not None:
+                update["round_limit"] = round_limit
 
             await self._coll.update_one(
                 {"task_id": task_id, "user_id": user_id},
                 {"$set": update},
                 upsert=True,
             )
+            return True
         except Exception:
             self._logger.exception("Failed to upsert task in cache")
+            return False
+
+    async def delete_task(self, task_id: int, user_id: int) -> bool:
+        try:
+            await self._coll.delete_one({"task_id": task_id, "user_id": user_id})
+            return True
+        except Exception:
+            self._logger.exception("Failed to delete task from cache")
+            return False
 
     async def get_status(self, task_id: int, user_id: int) -> str | None:
         try:
@@ -60,4 +73,14 @@ class TaskCacheDB(TaskCacheInterface):
             return doc.get("task_description")
         except Exception:
             self._logger.exception("Failed to get task description from cache")
+            return None
+
+    async def get_round_limit(self, task_id: int, user_id: int) -> int | None:
+        try:
+            doc = await self._coll.find_one({"task_id": task_id, "user_id": user_id})
+            if doc is None or doc.get("round_limit") is None:
+                return None
+            return int(doc["round_limit"])
+        except Exception:
+            self._logger.exception("Failed to get round limit from cache")
             return None

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from abc import abstractmethod
 from typing import Protocol
 
@@ -13,11 +11,17 @@ class RetrieveCache(Protocol):
 
     @abstractmethod
     async def set(
-        self,
-        key: str,
-        value: list[RetrievedDocument],
-        *,
-        ttl_sec: int,
+            self,
+            key: str,
+            value: list[RetrievedDocument],
+            ttl_sec: int,
     ) -> None:
         raise NotImplementedError
 
+    @abstractmethod
+    async def generation(self) -> str:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def bump_generation(self) -> None:
+        raise NotImplementedError

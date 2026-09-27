@@ -7,10 +7,10 @@ from user_service.app.application.interfaces.db.user_repo import UserRepositoryI
 
 class AddAdminUseCase:
     def __init__(
-        self,
-        admin_repo: AdminRepositoryInterface,
-        admin_cache_repo: AdminCacheRepositoryInterface,
-        user_repo: UserRepositoryInterface,
+            self,
+            admin_repo: AdminRepositoryInterface,
+            admin_cache_repo: AdminCacheRepositoryInterface,
+            user_repo: UserRepositoryInterface,
     ) -> None:
         self.admin_repo = admin_repo
         self.admin_cache_repo = admin_cache_repo

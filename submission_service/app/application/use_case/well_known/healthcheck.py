@@ -4,9 +4,9 @@ from submission_service.app.application.interfaces.kafka import SubmissionEventP
 
 class HealthCheckUseCase:
     def __init__(
-        self,
-        mongo_db: MongoDBInterface,
-        kafka: SubmissionEventProducerInterface,
+            self,
+            mongo_db: MongoDBInterface,
+            kafka: SubmissionEventProducerInterface,
     ) -> None:
         self.mongo_db = mongo_db
         self.kafka = kafka

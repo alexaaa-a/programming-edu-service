@@ -4,23 +4,22 @@ from user_service.app.application.interfaces.kafka import UserEventProducerInter
 
 class UpdateProfileUseCase:
     def __init__(
-        self,
-        user_repo: UserRepositoryInterface,
-        user_event_producer: UserEventProducerInterface,
+            self,
+            user_repo: UserRepositoryInterface,
+            user_event_producer: UserEventProducerInterface,
     ) -> None:
         self.user_repo = user_repo
         self.user_event_producer = user_event_producer
 
     async def __call__(
-        self,
-        user_id: int,
-        *,
-        name: str | None = None,
-        surname: str | None = None,
-        username: str | None = None,
-        email: str | None = None,
-        direction: str | None = None,
-        level: str | None = None,
+            self,
+            user_id: int,
+            name: str | None = None,
+            surname: str | None = None,
+            username: str | None = None,
+            email: str | None = None,
+            direction: str | None = None,
+            level: str | None = None,
     ) -> bool | str:
         if email is not None:
             existing = await self.user_repo.get_user_by_email(email)
