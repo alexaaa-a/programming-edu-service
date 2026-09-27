@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import type { AdminRole, AdminUser, CreateProjectTemplatePayload } from "@/lib/types";
 import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
+import { LoadingState } from "../components/LoadingState";
 import { EmptyState } from "../components/EmptyState";
 import { Field, PrimaryButton, fieldClass, selectClass } from "../components/onboarding/Field";
 import { cn } from "../components/ui/utils";
@@ -153,10 +154,10 @@ export default function AdminPanel() {
         <p className="font-mono text-[11px] text-primary">Служебное</p>
         <h1 className="mt-3 text-4xl leading-[1.1]">Админка</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Шаблоны спринтов и роли. Не учебный кабинет — внутренняя панель Desk.
+          Шаблоны спринтов и доступы. Сюда заходят только admin и superadmin.
         </p>
 
-        {loading && <p className="py-24 text-sm text-muted-foreground">Проверяем доступ…</p>}
+        {loading && <LoadingState label="Проверяем доступ…" />}
 
         {!loading && !canCreateTemplates && (
           <EmptyState

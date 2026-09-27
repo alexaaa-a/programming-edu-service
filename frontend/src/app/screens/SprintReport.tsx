@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { getMe, getMyAdminRole, getMyTrajectory, getSubmission, getTaskSubmissions } from "@/lib/api";
 import { startBackgroundReviewPoll } from "@/lib/background-review";
@@ -11,11 +11,12 @@ import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
 import { MarkdownBody } from "../components/MarkdownBody";
 import { PrimaryButton } from "../components/onboarding/Field";
 import { EmptyState } from "../components/EmptyState";
+import { LoadingState } from "../components/LoadingState";
 import { ConfettiBurst } from "../components/ConfettiBurst";
 import { scoreOutOfTen, scorePercent } from "@/lib/score";
 import { shouldCelebrate } from "@/lib/streak";
 import { actionCta, actionTitle } from "@/lib/trajectory";
-import { TrajectoryMeters } from "../components/workspace/TrajectoryMeters";
+import { TrajectoryFocus } from "../components/workspace/TrajectoryFocus";
 
 function ScoreRing({ value }: { value: number }) {
   const pct = scorePercent(value);
@@ -187,7 +188,9 @@ export default function SprintReport() {
   const goPrimary = () => {
     if (!submission) return;
     if (trajectory?.action === "chat") {
-      navigate("/chat", { state: { taskId: submission.task_id } });
+      navigate("/chat", {
+        state: { taskId: submission.task_id, draft: trajectory.focus?.ask },
+      });
       return;
     }
     if (trajectory?.action === "next_sprint" || trajectory?.action === "hold_sprint") {
@@ -210,15 +213,10 @@ export default function SprintReport() {
         <p className="font-mono text-[11px] text-primary">Ревью команды</p>
         <h1 className="mt-3 text-4xl leading-[1.1] sm:text-5xl">Отчёт по решению</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Не оценка личности — разбор кода. Дальше всегда есть один следующий шаг.
+          Разбор решения от команды: что сработало, что поправить и что делать дальше.
         </p>
 
-        {loading && (
-          <div className="flex items-center gap-2 py-24 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            Собираем отчёт…
-          </div>
-        )}
+        {loading && <LoadingState label="Собираем отчёт…" />}
 
         {!loading && !submission && (
           <EmptyState
@@ -285,27 +283,12 @@ export default function SprintReport() {
             </section>
 
             {trajectory && (
-              <section className="mt-4 rounded-[10px] border border-border bg-card p-6">
-                <p className="mb-4 font-mono text-[11px] text-muted-foreground">
-                  Траектория
-                </p>
-                <TrajectoryMeters trajectory={trajectory} className="sm:grid sm:grid-cols-2 sm:gap-x-8 sm:gap-y-4 sm:space-y-0" />
-              </section>
-            )}
-
-            {(trajectory?.failed_criteria.length ?? 0) > 0 && (
-              <section className="mt-4 rounded-[10px] border border-border bg-card p-6">
-                <p className="font-mono text-[11px] text-muted-foreground">
-                  Что ещё не закрыто
-                </p>
-                <ul className="mt-3 space-y-1.5">
-                  {trajectory!.failed_criteria.map((item) => (
-                    <li key={item} className="text-sm leading-relaxed text-muted-foreground">
-                      ✗ {item}
-                    </li>
-                  ))}
-                </ul>
-              </section>
+              <TrajectoryFocus
+                className="mt-4"
+                trajectory={trajectory}
+                chatTask={submission ? { taskId: submission.task_id } : null}
+                showMeters
+              />
             )}
 
             <section className="mt-8">
@@ -327,8 +310,8 @@ export default function SprintReport() {
                       <span
                         className={
                           item.passed
-                            ? "mt-0.5 shrink-0 font-mono text-sm text-emerald-600"
-                            : "mt-0.5 shrink-0 font-mono text-sm text-rose-600"
+                            ? "mt-0.5 shrink-0 font-mono text-sm text-success"
+                            : "mt-0.5 shrink-0 font-mono text-sm text-destructive"
                         }
                         aria-hidden
                       >
@@ -355,7 +338,7 @@ export default function SprintReport() {
                       key={`${item.text}-${index}`}
                       className="flex gap-3 rounded-xl border border-border bg-card px-4 py-3"
                     >
-                      <span className="mt-0.5 shrink-0 font-mono text-sm text-amber-700" aria-hidden>
+                      <span className="mt-0.5 shrink-0 font-mono text-sm text-warning" aria-hidden>
                         ✗
                       </span>
                       <div className="min-w-0">
@@ -393,10 +376,10 @@ export default function SprintReport() {
                           <span
                             className={
                               step.status === "ok"
-                                ? "text-emerald-600"
+                                ? "text-success"
                                 : step.status === "error"
-                                  ? "text-rose-600"
-                                  : "text-amber-700"
+                                  ? "text-destructive"
+                                  : "text-warning"
                             }
                           >
                             {step.status === "ok" ? "✓" : step.status === "error" ? "✗" : "!"}

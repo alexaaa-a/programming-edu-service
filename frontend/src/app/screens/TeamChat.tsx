@@ -47,8 +47,12 @@ export default function TeamChat() {
   const navigate = useNavigate();
   const location = useLocation();
   const chatState =
-    (location.state as { taskTitle?: string; taskId?: number; emmaBriefing?: string } | null) ??
-    null;
+    (location.state as {
+      taskTitle?: string;
+      taskId?: number;
+      emmaBriefing?: string;
+      draft?: string;
+    } | null) ?? null;
   const emmaBriefing = chatState?.emmaBriefing?.trim() || "";
   const taskTitleForApi = chatState?.taskTitle?.trim() || undefined;
   const headerTitle =
@@ -61,7 +65,7 @@ export default function TeamChat() {
   const [oneSpeaker, setOneSpeaker] = useState(false);
   const [emmaArmed, setEmmaArmed] = useState(Boolean(emmaBriefing));
   const [adminRole, setAdminRole] = useState<AdminRole>("user");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(() => chatState?.draft?.trim() ?? "");
   const [messages, setMessages] = useState<Message[]>([]);
   const [historyReady, setHistoryReady] = useState(false);
   const [sending, setSending] = useState(false);

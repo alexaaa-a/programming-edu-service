@@ -177,7 +177,8 @@ def test_high_score_and_checklist_allows_close():
     )
     assert result.action == "close_ok"
     assert result.block_close is False
-    assert result.mastery >= 0.75
+    assert result.mastery > 0.7
+    assert result.readiness >= result.readiness_threshold
     assert result.block_next_sprint is False
 
 
@@ -248,7 +249,7 @@ def test_strong_window_on_done_task_suggests_next_sprint():
     assert result.readiness >= 0.75
 
 
-def test_retries_raise_difficulty_and_hold_sprint():
+def test_retries_mark_thin_trajectory_at_sprint_end():
     t0 = NOW - timedelta(days=1)
     result = compute_trajectory(
         [
@@ -262,10 +263,12 @@ def test_retries_raise_difficulty_and_hold_sprint():
         task_id=2,
         current_task_status="done",
     )
-    assert result.difficulty > 0.4
-    assert result.readiness < 0.7
+    assert result.difficulty > 0.25
+    assert result.readiness < result.readiness_threshold
     assert result.action == "next_sprint"
-    assert result.block_next_sprint is False
+    assert result.block_close is False
+    assert result.block_next_sprint is True
+    assert "тонкую траекторию" in result.reason
 
 
 def test_recent_scores_weigh_more_than_old():

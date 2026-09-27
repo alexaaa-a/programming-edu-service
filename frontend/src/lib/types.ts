@@ -202,6 +202,57 @@ export type TrajectoryAction =
   | "next_sprint"
   | string;
 
+export type SkillStatus = "new" | "gap" | "learning" | "mastered" | "fading" | string;
+
+export type FocusKind = "fix" | "learn" | "review" | "grow" | "stretch" | "prepare" | string;
+
+export type RecommendationKind =
+  | "fix"
+  | "learn"
+  | "review"
+  | "practice"
+  | "next_task"
+  | "stretch"
+  | string;
+
+export interface TrajectorySkill {
+  id: string;
+  title: string;
+  status: SkillStatus;
+  mastery: number;
+  predicted_success: number;
+  retention: number;
+  evidence: number;
+  opportunities: number;
+  last_practiced_at: string | null;
+}
+
+export interface TrajectoryFocus {
+  skill_id: string;
+  title: string;
+  summary: string;
+  kind: FocusKind;
+  status: SkillStatus;
+  mastery: number;
+  predicted_success: number;
+  why: string;
+  steps: string[];
+  mentor: string;
+  mentor_name: string;
+  ask: string;
+  evidence: string[];
+}
+
+export interface TrajectoryRecommendation {
+  kind: RecommendationKind;
+  title: string;
+  detail: string;
+  skill_id: string | null;
+  task_id: number | null;
+  mentor: string | null;
+  ask: string | null;
+}
+
 export interface UserTrajectory {
   mastery: number;
   difficulty: number;
@@ -217,4 +268,11 @@ export interface UserTrajectory {
   current_attempts: number;
   current_score: number | null;
   failed_criteria: string[];
+  velocity?: number;
+  readiness_threshold?: number;
+  skills?: TrajectorySkill[];
+  focus?: TrajectoryFocus | null;
+  recommendations?: TrajectoryRecommendation[];
+  next_task_id?: number | null;
+  model?: string;
 }

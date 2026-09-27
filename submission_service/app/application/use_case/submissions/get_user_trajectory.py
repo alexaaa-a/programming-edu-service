@@ -8,6 +8,7 @@ from submission_service.app.application.trajectory.formula import (
     TrajectoryResult,
     compute_trajectory,
 )
+from submission_service.app.application.trajectory.planner import TaskInfo
 
 
 class GetUserTrajectoryUseCase:
@@ -46,4 +47,15 @@ class GetUserTrajectoryUseCase:
             now=now or datetime.now(tz=timezone.utc),
             config=TrajectoryConfig(max_rounds=max_rounds),
             current_task_status=current_status,
+            tasks=await self._user_tasks(user_id),
         )
+
+    async def _user_tasks(self, user_id: int) -> list[TaskInfo]:
+        lister = getattr(self._task_cache, "list_user_tasks", None)
+        if lister is None:
+            return []
+        try:
+            tasks = await lister(user_id)
+        except Exception:
+            return []
+        return [task for task in (tasks or []) if isinstance(task, TaskInfo)]

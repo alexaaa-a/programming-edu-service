@@ -215,3 +215,57 @@ def test_intern_turn_drops_huddle_to_one_speaker():
     solo = limit_to_one_speaker(decision)
     assert solo.mode == "solo"
     assert solo.speaker.id == decision.speaker.id
+
+
+def test_briefing_includes_trajectory_focus_and_steps():
+    text = format_trajectory_briefing(
+        TrajectorySnapshot(
+            action="chat",
+            reason="Сначала разбери замечания.",
+            focus_title="Граничные случаи",
+            focus_kind="learn",
+            focus_why="Владение 30%: это пробел в знаниях.",
+            focus_mastery=0.3,
+            focus_steps=["Выпиши 5 входов-ловушек.", "Прогони их до сдачи."],
+            focus_mentor="emma",
+        )
+    )
+    assert "«Граничные случаи»" in text
+    assert "пробел в знаниях" in text
+    assert "1) Выпиши 5 входов-ловушек." in text
+    assert "2) Прогони их до сдачи." in text
+
+
+def test_chat_action_routes_to_focus_mentor():
+    decision = route_without_llm("не понимаю, что не так", trajectory_action="chat", trajectory_mentor="emma")
+    assert decision is not None
+    assert decision.speaker.id == "emma"
+    assert decision.source == "trajectory"
+    fallback = route_without_llm("не понимаю, что не так", trajectory_action="chat", trajectory_mentor="nobody")
+    assert fallback is not None
+    assert fallback.speaker == SARA
+
+
+def test_gateway_snapshot_parses_focus():
+    from agent_service.app.infrastructure.http.submission_trajectory import _snapshot
+
+    snapshot = _snapshot(
+        {
+            "action": "chat",
+            "reason": "r",
+            "focus": {
+                "skill_id": "data_storage",
+                "title": "Работа с базой данных",
+                "kind": "learn",
+                "why": "w",
+                "mastery": 0.31,
+                "steps": ["a", "b"],
+                "mentor": "mike",
+            },
+            "recommendations": [{"title": "Исправь: N+1"}, {"kind": "x"}],
+        }
+    )
+    assert snapshot.focus_mentor == "mike"
+    assert snapshot.focus_steps == ["a", "b"]
+    assert snapshot.focus_mastery == 0.31
+    assert snapshot.recommendations == ["Исправь: N+1"]

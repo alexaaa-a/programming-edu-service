@@ -3,7 +3,41 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable, Literal, Sequence
 
 from submission_service.app.application.dto.submission import SubmissionDTO
+from submission_service.app.application.trajectory.evidence import (
+    EvidenceConfig,
+    build_opportunities,
+    normalize_score,
+    submission_observations,
+)
+from submission_service.app.application.trajectory.knowledge import (
+    BktParams,
+    KnowledgeState,
+    Observation,
+    SkillState,
+    trace_knowledge,
+)
+from submission_service.app.application.trajectory.planner import (
+    OPEN_STATUSES,
+    FailureAnalysis,
+    Focus,
+    NextTask,
+    PlannerConfig,
+    Recommendation,
+    TaskInfo,
+    analyze_failures,
+    build_recommendations,
+    choose_focus,
+    choose_next_task,
+    expected_success,
+)
+from submission_service.app.application.trajectory.skills import (
+    MENTOR_ACCUSATIVE,
+    SKILL_BY_ID,
+    task_profile,
+)
 
+
+MODEL_VERSION = "bkt-forgetting/1"
 
 Action = Literal[
     "start",
@@ -21,18 +55,32 @@ Action = Literal[
 @dataclass(frozen=True, slots=True)
 class TrajectoryConfig:
     window: int = 8
-    decay: float = 0.7
     pass_score: int = 8
     low_score: int = 5
-    r_next: float = 0.7
-    r_sprint: float = 0.75
-    d_hard: float = 0.5
-    activity_days: int = 2
-    weight_m: float = 0.5
-    weight_d: float = 0.3
-    weight_p: float = 0.2
     max_rounds: int = 2
-    criteria_blend: float = 0.3
+    gap_mass_chat: float = 0.5
+    activity_half_life_days: float = 2.0
+    velocity_days: int = 7
+    bkt: BktParams = field(default_factory=BktParams)
+    evidence: EvidenceConfig = field(default_factory=EvidenceConfig)
+    planner: PlannerConfig = field(default_factory=PlannerConfig)
+
+    @property
+    def readiness_threshold(self) -> float:
+        return max(0.0, min(1.0, (self.pass_score - 1.5) / 9.0))
+
+
+@dataclass(frozen=True, slots=True)
+class SkillView:
+    id: str
+    title: str
+    status: str
+    mastery: float
+    predicted_success: float
+    retention: float
+    evidence: float
+    opportunities: int
+    last_practiced_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,13 +99,13 @@ class TrajectoryResult:
     current_attempts: int = 0
     current_score: int | None = None
     failed_criteria: list[str] = field(default_factory=list)
-
-
-def normalize_score(raw: int | float) -> float:
-    value = float(raw)
-    if value > 10:
-        value = value / 10.0
-    return max(0.0, min(10.0, value))
+    velocity: float = 0.0
+    readiness_threshold: float = 0.0
+    skills: list[SkillView] = field(default_factory=list)
+    focus: Focus | None = None
+    recommendations: list[Recommendation] = field(default_factory=list)
+    next_task_id: int | None = None
+    model: str = MODEL_VERSION
 
 
 def compute_trajectory(
@@ -66,72 +114,106 @@ def compute_trajectory(
         now: datetime | None = None,
         config: TrajectoryConfig | None = None,
         current_task_status: str | None = None,
+        tasks: Sequence[TaskInfo] | None = None,
 ) -> TrajectoryResult:
     cfg = config or TrajectoryConfig()
-    stamp = now or datetime.now(tz=timezone.utc)
+    stamp = _as_utc(now or datetime.now(tz=timezone.utc))
     items = list(submissions or [])
+    task_list = list(tasks or [])
+    descriptions = {task.task_id: task.description for task in task_list if task.description}
+
     if not items:
+        open_profile = _open_profile(task_list, exclude=task_id)
+        knowledge = KnowledgeState(params=cfg.bkt)
+        current_profile = task_profile(descriptions.get(task_id)) if task_id is not None else {}
+        focus = choose_focus(knowledge, None, current_profile, open_profile)
+        next_task = choose_next_task(task_list, knowledge, task_id)
         return TrajectoryResult(
             mastery=0.0,
             difficulty=0.0,
             pace=0.0,
             readiness=0.0,
             action="start",
-            reason="Ещё нет сдач — возьми первую задачу пути.",
+            reason=_with_focus_hint("Ещё нет сдач — возьми первую задачу пути.", focus),
             block_close=True,
             block_next_sprint=True,
+            current_task_id=task_id,
+            readiness_threshold=round(cfg.readiness_threshold, 3),
+            focus=focus,
+            recommendations=build_recommendations(focus, None, knowledge, next_task, cfg.planner),
+            next_task_id=next_task.task_id if next_task else None,
         )
 
     ordered = sorted(items, key=_created_at)
     reviewed = [item for item in ordered if item.review is not None]
     window = reviewed[-cfg.window :] if reviewed else []
     window_task_ids = list(dict.fromkeys(item.task_id for item in window))
-    latest_by_task = _latest_reviewed_by_task(reviewed)
 
-    mastery = _mastery(window, cfg)
-    difficulty = _difficulty(ordered, window_task_ids, latest_by_task, cfg)
-    pace = _pace(latest_by_task, window_task_ids, ordered, stamp, cfg)
-    readiness = _clamp(
-        cfg.weight_m * mastery
-        + cfg.weight_d * (1.0 - difficulty)
-        + cfg.weight_p * pace
-    )
+    opportunities = build_opportunities(ordered, descriptions, cfg.evidence)
+    knowledge = trace_knowledge(opportunities, now=stamp, params=cfg.bkt)
 
     current_id = task_id if task_id is not None else _latest_task_id(ordered)
-    current_subs = [item for item in ordered if item.task_id == current_id] if current_id else []
+    open_profile = _open_profile(task_list, exclude=current_id)
+    current_subs = [item for item in ordered if item.task_id == current_id] if current_id is not None else []
     current_reviewed = [item for item in current_subs if item.review is not None]
+    latest_current = current_reviewed[-1] if current_reviewed else None
     current_score = (
-        int(round(normalize_score(current_reviewed[-1].review.score)))
-        if current_reviewed and current_reviewed[-1].review is not None
+        int(round(normalize_score(latest_current.review.score)))
+        if latest_current is not None and latest_current.review is not None
         else None
     )
     current_attempts = sum(1 for item in current_subs if _counts_toward_rounds(item))
     pending = any(item.status == "pending" for item in current_subs)
-    failed_criteria = _failed_criteria(current_reviewed[-1] if current_reviewed else None)
-    criteria_rate = _criteria_rate(current_reviewed[-1] if current_reviewed else None)
-    all_mastered = bool(window_task_ids) and all(
-        _task_score(latest_by_task.get(tid)) >= cfg.pass_score for tid in window_task_ids
+    failed_criteria = _failed_criteria(latest_current)
+
+    latest_obs: list[Observation] = []
+    failures: FailureAnalysis | None = None
+    if latest_current is not None:
+        latest_obs = submission_observations(latest_current, descriptions.get(latest_current.task_id), cfg.evidence)
+        at = _as_utc(latest_current.reviewed_at or latest_current.created_at)
+        prior = trace_knowledge(
+            opportunities,
+            now=at,
+            params=cfg.bkt,
+            until=at - timedelta(microseconds=1),
+        )
+        failures = analyze_failures(latest_obs, prior)
+
+    current_profile = _profile_from_observations(latest_obs) or task_profile(descriptions.get(current_id))
+    window_ids = {item.submission_id for item in window}
+    window_mix = _profile_from_observations(
+        obs for op in opportunities if op.submission_id in window_ids for obs in op.observations
     )
+
+    mastery = _mastery(knowledge)
+    readiness = expected_success(window_mix, knowledge) if window_mix else 0.0
+    difficulty = 1.0 - expected_success(current_profile or window_mix, knowledge)
+    pace = _pace(ordered, stamp, cfg)
+    velocity = mastery - _mastery_at(opportunities, knowledge, stamp - timedelta(days=cfg.velocity_days), cfg)
+
+    next_task = choose_next_task(task_list, knowledge, current_id)
+    focus = choose_focus(knowledge, failures, current_profile, open_profile)
 
     action, reason, block_close, block_next = _decide_action(
         cfg=cfg,
         readiness=readiness,
-        difficulty=difficulty,
-        mastery=mastery,
         current_score=current_score,
         current_attempts=current_attempts,
         pending=pending,
-        criteria_rate=criteria_rate,
-        all_mastered=all_mastered,
+        failures=failures,
+        focus=focus,
+        next_task=next_task,
         current_task_status=current_task_status,
         has_reviews=bool(reviewed),
     )
+    fixable = failures if action in {"chat", "revise"} else None
+    recommendations = build_recommendations(focus, fixable, knowledge, next_task, cfg.planner)
 
     return TrajectoryResult(
         mastery=round(mastery, 3),
-        difficulty=round(difficulty, 3),
+        difficulty=round(_clamp(difficulty), 3),
         pace=round(pace, 3),
-        readiness=round(readiness, 3),
+        readiness=round(_clamp(readiness), 3),
         action=action,
         reason=reason,
         block_close=block_close,
@@ -142,161 +224,236 @@ def compute_trajectory(
         current_attempts=current_attempts,
         current_score=current_score,
         failed_criteria=failed_criteria,
+        velocity=round(velocity, 3),
+        readiness_threshold=round(cfg.readiness_threshold, 3),
+        skills=_skill_views(knowledge, focus),
+        focus=focus,
+        recommendations=recommendations,
+        next_task_id=next_task.task_id if next_task else None,
     )
-
-
-def _mastery(window: Sequence[SubmissionDTO], cfg: TrajectoryConfig) -> float:
-    if not window:
-        return 0.0
-    weights: list[float] = []
-    values: list[float] = []
-    n = len(window)
-    for index, item in enumerate(window, start=1):
-        review = item.review
-        if review is None:
-            continue
-        score = normalize_score(review.score) / 10.0
-        rate = _criteria_rate(item)
-        quality = (1.0 - cfg.criteria_blend) * score + cfg.criteria_blend * rate if rate is not None else score
-        weight = cfg.decay ** (n - index)
-        weights.append(weight)
-        values.append(quality)
-    if not weights:
-        return 0.0
-    return _clamp(sum(w * v for w, v in zip(weights, values)) / sum(weights))
-
-
-def _difficulty(
-        all_subs: Sequence[SubmissionDTO],
-        window_task_ids: Sequence[int],
-        latest_by_task: dict[int, SubmissionDTO],
-        cfg: TrajectoryConfig,
-) -> float:
-    if not window_task_ids:
-        return 0.0
-    retry_flags: list[float] = []
-    fail_flags: list[float] = []
-    coverage: list[float] = []
-    for task_id in window_task_ids:
-        attempts = sum(1 for item in all_subs if item.task_id == task_id)
-        retry_flags.append(1.0 if attempts > 1 else 0.0)
-        latest = latest_by_task.get(task_id)
-        score = _task_score(latest)
-        fail_flags.append(1.0 if score < cfg.low_score else 0.0)
-        rate = _criteria_rate(latest)
-        if rate is None:
-            coverage.append(score / 10.0)
-        else:
-            coverage.append(rate)
-    retry = sum(retry_flags) / len(retry_flags)
-    fail = sum(fail_flags) / len(fail_flags)
-    closed = sum(coverage) / len(coverage)
-    return _clamp(0.4 * retry + 0.3 * fail + 0.3 * (1.0 - closed))
-
-
-def _pace(
-        latest_by_task: dict[int, SubmissionDTO],
-        window_task_ids: Sequence[int],
-        all_subs: Sequence[SubmissionDTO],
-        now: datetime,
-        cfg: TrajectoryConfig,
-) -> float:
-    if not window_task_ids:
-        activity = 1.0 if _is_recent(_latest_stamp(all_subs), now, cfg.activity_days) else 0.0
-        return _clamp(0.4 * activity)
-    done = sum(
-        1 for task_id in window_task_ids if _task_score(latest_by_task.get(task_id)) >= cfg.pass_score
-    )
-    done_ratio = done / len(window_task_ids)
-    activity = 1.0 if _is_recent(_latest_stamp(all_subs), now, cfg.activity_days) else 0.0
-    return _clamp(0.6 * done_ratio + 0.4 * activity)
 
 
 def _decide_action(
         cfg: TrajectoryConfig,
         readiness: float,
-        difficulty: float,
-        mastery: float,
         current_score: int | None,
         current_attempts: int,
         pending: bool,
-        criteria_rate: float | None,
-        all_mastered: bool,
+        failures: FailureAnalysis | None,
+        focus: Focus | None,
+        next_task: NextTask | None,
         current_task_status: str | None,
         has_reviews: bool,
 ) -> tuple[Action, str, bool, bool]:
     if pending:
         return "wait_review", "Предыдущая сдача ещё на проверке — дождись отчёта.", True, True
     if not has_reviews or current_score is None:
-        return "start", "Есть задача без ревью — сдайте решение команде.", True, True
+        return (
+            "start",
+            _with_focus_hint("Есть задача без ревью — сдай решение команде.", focus),
+            True,
+            True,
+        )
 
-    weak_criteria = criteria_rate is not None and criteria_rate < 0.4
+    thin = readiness < cfg.readiness_threshold
+    gap_mass = failures.gap_mass if failures is not None else 0.0
     if current_score < cfg.pass_score:
         if current_attempts < cfg.max_rounds:
-            if current_score < cfg.low_score or weak_criteria:
+            if current_score < cfg.low_score or gap_mass >= cfg.gap_mass_chat:
                 return (
                     "chat",
-                    "Сначала разбери замечания с командой, потом правь код.",
+                    _join(
+                        "Сначала разбери замечания с командой, потом правь код.",
+                        _gap_line(focus),
+                    ),
                     True,
                     True,
                 )
             return (
                 "revise",
-                "База есть, но к следующей задаче рано — исправь замечания и сдайте снова.",
+                _join(
+                    "База есть, но к следующей задаче рано — исправь замечания и сдай снова.",
+                    _revise_line(focus),
+                ),
                 True,
                 True,
             )
         return (
             "close_weak",
-            "Лимит попыток исчерпан. Закрой задачу как слабую и завершай спринт: "
-            "письмо отметит слабый зачёт, оклад не режется.",
+            _join(
+                "Лимит попыток исчерпан. Закрой задачу как слабую и завершай спринт: "
+                "письмо отметит слабый зачёт, оклад не режется.",
+                f"«{focus.title}» останется в фокусе следующих задач." if focus is not None else "",
+            ),
             False,
             False,
         )
 
-    status = (current_task_status or "").strip().lower()
-    if not status:
-        status = "done"
+    status = (current_task_status or "").strip().lower() or "done"
     if status in {"review", "in_progress"}:
-        if difficulty >= cfg.d_hard or readiness < cfg.r_next:
+        if thin:
             return (
                 "close_ok",
-                "Эту задачу можно закрыть, но к следующему спринту рано — разбери слабые места.",
+                _join(
+                    "Эту задачу можно закрыть, но к следующему спринту рано — разбери слабые места.",
+                    _focus_line(focus),
+                ),
                 False,
                 True,
             )
         return "close_ok", "Команда довольна. Можно закрыть задачу и брать следующий узел.", False, False
 
-    if difficulty >= cfg.d_hard or readiness < cfg.r_next:
+    if next_task is not None:
+        return (
+            "next_task",
+            _join(
+                "Текущий узел закрыт. Бери следующую задачу пути.",
+                _focus_line(focus),
+            ),
+            False,
+            thin,
+        )
+    if thin:
         return (
             "next_sprint",
-            "Задачи спринта закрыты. Завершай его: письмо отметит тонкую траекторию, "
-            "оклад от этого не режется.",
+            _join(
+                "Задачи спринта закрыты. Завершай его: письмо отметит тонкую траекторию, "
+                "оклад от этого не режется.",
+                _focus_line(focus),
+            ),
             False,
-            False,
+            True,
         )
-    if all_mastered and readiness >= cfg.r_sprint and mastery >= 0.75:
-        return "next_sprint", "Траектория устойчивая — можно брать следующий спринт.", False, False
-    return "next_task", "Текущий узел закрыт нормально. Бери следующую задачу пути.", False, False
+    return (
+        "next_sprint",
+        _join(
+            "Траектория устойчивая — можно смело брать следующий спринт.",
+            _focus_line(focus),
+        ),
+        False,
+        False,
+    )
 
 
-def _latest_reviewed_by_task(reviewed: Sequence[SubmissionDTO]) -> dict[int, SubmissionDTO]:
-    latest: dict[int, SubmissionDTO] = {}
-    for item in reviewed:
-        latest[item.task_id] = item
-    return latest
+def _gap_line(focus: Focus | None) -> str:
+    if focus is None:
+        return ""
+    return (
+        f"Главный пробел — «{focus.title}»: "
+        f"спроси {MENTOR_ACCUSATIVE.get(focus.mentor, focus.mentor_name)}."
+    )
+
+
+def _revise_line(focus: Focus | None) -> str:
+    if focus is None:
+        return ""
+    if focus.kind == "fix":
+        return f"По истории «{focus.title}» ты знаешь — похоже на невнимательность, перепроверь."
+    if focus.kind == "learn":
+        return f"Начни с темы «{focus.title}»: {_lower_first(focus.steps[0])}"
+    return f"Начни с «{focus.title}»: {_lower_first(focus.steps[0])}"
+
+
+def _focus_line(focus: Focus | None) -> str:
+    if focus is None:
+        return ""
+    lead = {
+        "fix": "Перепроверь",
+        "learn": "Слабее всего",
+        "review": "Пора повторить",
+        "grow": "Дальше прокачивай",
+        "stretch": "Следующий уровень",
+        "prepare": "Главное в задаче",
+    }[focus.kind]
+    return f"{lead}: «{focus.title}»."
+
+
+def _with_focus_hint(base: str, focus: Focus | None) -> str:
+    if focus is None:
+        return base
+    return _join(base, f"Перед сдачей проверь «{focus.title}»: {_lower_first(focus.steps[0])}")
+
+
+def _mastery(knowledge: KnowledgeState) -> float:
+    practiced = knowledge.practiced()
+    total = sum(state.evidence for state in practiced)
+    if total <= 0:
+        return 0.0
+    return _clamp(sum(state.evidence * state.p_now for state in practiced) / total)
+
+
+def _mastery_at(
+        opportunities,
+        knowledge: KnowledgeState,
+        moment: datetime,
+        cfg: TrajectoryConfig,
+) -> float:
+    practiced = knowledge.practiced()
+    total = sum(state.evidence for state in practiced)
+    if total <= 0:
+        return 0.0
+    before = trace_knowledge(opportunities, now=moment, params=cfg.bkt, until=moment)
+    return _clamp(
+        sum(state.evidence * before.get(state.skill_id).p_now for state in practiced) / total
+    )
+
+
+def _pace(items: Sequence[SubmissionDTO], now: datetime, cfg: TrajectoryConfig) -> float:
+    stamp = _latest_stamp(items)
+    if stamp is None:
+        return 0.0
+    days = max(0.0, (now - stamp).total_seconds() / 86400.0)
+    return _clamp(2.0 ** (-days / cfg.activity_half_life_days))
+
+
+def _profile_from_observations(observations: Iterable[Observation]) -> dict[str, float]:
+    mix: dict[str, float] = {}
+    for obs in observations:
+        mix[obs.skill_id] = mix.get(obs.skill_id, 0.0) + obs.weight
+    total = sum(mix.values())
+    if total <= 0:
+        return {}
+    return {skill_id: value / total for skill_id, value in mix.items()}
+
+
+def _open_profile(tasks: Sequence[TaskInfo], exclude: int | None) -> dict[str, float]:
+    mix: dict[str, float] = {}
+    for task in tasks:
+        if task.task_id == exclude or (task.status or "").lower() not in OPEN_STATUSES:
+            continue
+        for skill_id, share in task_profile(task.description).items():
+            mix[skill_id] = mix.get(skill_id, 0.0) + share
+    total = sum(mix.values())
+    if total <= 0:
+        return {}
+    return {skill_id: value / total for skill_id, value in mix.items()}
+
+
+def _skill_views(knowledge: KnowledgeState, focus: Focus | None) -> list[SkillView]:
+    states: list[SkillState] = knowledge.practiced()
+    if focus is not None and all(state.skill_id != focus.skill_id for state in states):
+        states.append(knowledge.get(focus.skill_id))
+    states.sort(key=lambda state: (state.opportunities == 0, state.p_now))
+    return [
+        SkillView(
+            id=state.skill_id,
+            title=SKILL_BY_ID[state.skill_id].title if state.skill_id in SKILL_BY_ID else state.skill_id,
+            status=state.status,
+            mastery=round(state.p_now, 3),
+            predicted_success=round(state.predicted_success, 3),
+            retention=round(state.retention, 3),
+            evidence=round(state.evidence, 2),
+            opportunities=state.opportunities,
+            last_practiced_at=state.last_practiced_at,
+        )
+        for state in states
+    ]
 
 
 def _latest_task_id(ordered: Sequence[SubmissionDTO]) -> int | None:
     if not ordered:
         return None
     return ordered[-1].task_id
-
-
-def _task_score(item: SubmissionDTO | None) -> float:
-    if item is None or item.review is None:
-        return 0.0
-    return normalize_score(item.review.score)
 
 
 def _counts_toward_rounds(item: SubmissionDTO) -> bool:
@@ -307,15 +464,6 @@ def _counts_toward_rounds(item: SubmissionDTO) -> bool:
     if item.status == "failed" and item.reviewed_at is not None:
         return True
     return False
-
-
-def _criteria_rate(item: SubmissionDTO | None) -> float | None:
-    if item is None or item.review is None:
-        return None
-    criteria = item.review.criteria or []
-    if not criteria:
-        return None
-    return sum(1.0 for row in criteria if row.passed) / len(criteria)
 
 
 def _failed_criteria(item: SubmissionDTO | None) -> list[str]:
@@ -337,10 +485,16 @@ def _latest_stamp(items: Iterable[SubmissionDTO]) -> datetime | None:
     return max(stamps) if stamps else None
 
 
-def _is_recent(stamp: datetime | None, now: datetime, days: int) -> bool:
-    if stamp is None:
-        return False
-    return (now - stamp) <= timedelta(days=days)
+def _join(*parts: str) -> str:
+    return " ".join(part.strip() for part in parts if part and part.strip())
+
+
+def _lower_first(text: str) -> str:
+    return text[:1].lower() + text[1:] if text else text
+
+
+def _pct(value: float) -> int:
+    return max(0, min(100, int(round(float(value) * 100))))
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -351,3 +505,15 @@ def _as_utc(value: datetime) -> datetime:
 
 def _clamp(value: float) -> float:
     return max(0.0, min(1.0, value))
+
+
+__all__ = [
+    "Action",
+    "MODEL_VERSION",
+    "SkillView",
+    "TaskInfo",
+    "TrajectoryConfig",
+    "TrajectoryResult",
+    "compute_trajectory",
+    "normalize_score",
+]

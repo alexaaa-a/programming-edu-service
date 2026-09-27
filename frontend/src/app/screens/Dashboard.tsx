@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
 import { PrimaryButton } from "../components/onboarding/Field";
 import { EmptyState } from "../components/EmptyState";
+import { LoadingState } from "../components/LoadingState";
 import { ConfettiBurst } from "../components/ConfettiBurst";
 import { useRequireAuth } from "../hooks/useRequireAuth";
 import { TEAM } from "@/lib/team";
@@ -35,6 +36,7 @@ import {
 } from "@/lib/career-rights";
 import { actionCta, actionTitle } from "@/lib/trajectory";
 import { TrajectoryMeters } from "../components/workspace/TrajectoryMeters";
+import { TrajectoryFocus } from "../components/workspace/TrajectoryFocus";
 import { cn } from "../components/ui/utils";
 
 function pickCurrentTask(board: BoardResponse): TaskResponse | null {
@@ -207,6 +209,13 @@ export default function Dashboard() {
     : 1;
 
   const pathTasks = board ? flattenBoard(board) : [];
+  const taskTitles = useMemo(
+    () =>
+      board
+        ? Object.fromEntries(flattenBoard(board).map((task) => [task.task_id, task.title]))
+        : {},
+    [board],
+  );
   const sprintHold = Boolean(board) && allDone(board!) && serverHold;
   const holdReason =
     serverHoldReason ||
@@ -433,7 +442,7 @@ export default function Dashboard() {
         )}
 
         {loading && (
-          <p className="py-24 text-center text-sm text-muted-foreground">Собираем спринт…</p>
+          <LoadingState label="Собираем спринт…" />
         )}
 
         {!loading && needsProject && (
@@ -545,7 +554,11 @@ export default function Dashboard() {
                           onClick={() =>
                             trajectory?.action === "chat"
                               ? navigate("/chat", {
-                                  state: { taskTitle: current.title, taskId: current.task_id },
+                                  state: {
+                                    taskTitle: current.title,
+                                    taskId: current.task_id,
+                                    draft: trajectory.focus?.ask,
+                                  },
                                 })
                               : navigate(`/task/${current.task_id}`)
                           }
@@ -565,7 +578,7 @@ export default function Dashboard() {
                           {holdReason}
                         </p>
                         {forceArmed && canForceSprint && (
-                          <p className="mt-3 max-w-xl text-xs leading-relaxed text-amber-400">
+                          <p className="mt-3 max-w-xl text-xs leading-relaxed text-warning">
                             {rights.appeal && !isAdmin
                               ? "Одна апелляция за спринт. Оклад от неё не растёт: удержание просто пропускается."
                               : "Это не зачёт. Следующий спринт откроется со слабыми узлами в траектории."}
@@ -586,7 +599,7 @@ export default function Dashboard() {
                                   type="button"
                                   disabled={completing}
                                   onClick={() => void handleCompleteSprint(true)}
-                                  className="h-12 px-4 text-sm text-amber-300 hover:text-amber-200 disabled:opacity-40"
+                                  className="h-12 px-4 text-sm text-warning hover:text-warning/80 disabled:opacity-40"
                                 >
                                   {completing
                                     ? "Открываем…"
@@ -673,7 +686,7 @@ export default function Dashboard() {
                         {counts.done}
                         <span className="text-muted-foreground"> / {counts.total}</span>
                         {counts.weak > 0 && (
-                          <span className="ml-2 font-mono text-[11px] text-amber-400">
+                          <span className="ml-2 font-mono text-[11px] text-warning">
                             {counts.weak} слабо
                           </span>
                         )}
@@ -702,6 +715,15 @@ export default function Dashboard() {
               </div>
             </section>
 
+            {trajectory ? (
+              <TrajectoryFocus
+                className="mt-6"
+                trajectory={trajectory}
+                taskTitles={taskTitles}
+                chatTask={current ? { taskId: current.task_id, taskTitle: current.title } : null}
+              />
+            ) : null}
+
             <section id="path" className="mt-12 scroll-mt-8">
               <div className="mb-5 flex items-end justify-between gap-4">
                 <div>
@@ -728,7 +750,7 @@ export default function Dashboard() {
                         <div
                           className={cn(
                             "h-px w-8 shrink-0 sm:w-12",
-                            weak ? "bg-amber-400/60" : done || now ? "bg-primary/50" : "bg-foreground/10",
+                            weak ? "bg-warning/60" : done ? "bg-success/60" : now ? "bg-primary/50" : "bg-foreground/10",
                           )}
                         />
                       )}
@@ -741,8 +763,8 @@ export default function Dashboard() {
                         <span
                           className={cn(
                             "flex size-10 items-center justify-center rounded-full border text-xs font-medium transition-colors",
-                            weak && "border-amber-400 bg-amber-400/15 text-amber-300",
-                            done && !weak && "border-primary bg-primary text-primary-foreground",
+                            weak && "border-warning bg-warning/15 text-warning",
+                            done && !weak && "border-success bg-success text-success-foreground",
                             now && !done && "border-primary bg-primary/15 text-primary",
                             !done && !now && "border-border text-muted-foreground",
                           )}
@@ -763,7 +785,7 @@ export default function Dashboard() {
               <div className="mb-5">
                 <h2 className="text-3xl">Доска</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Как в команде: не список уроков, а канбан спринта.
+                  Обычный канбан: своя колонка на каждый статус задачи.
                 </p>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -811,7 +833,7 @@ export default function Dashboard() {
                                 {open ? preview : "По очереди — сначала текущая задача"}
                               </p>
                               {t.close_quality === "weak" && (
-                                <p className="mt-2 font-mono text-[11px] text-amber-300">
+                                <p className="mt-2 font-mono text-[11px] text-warning">
                                   слабо
                                 </p>
                               )}

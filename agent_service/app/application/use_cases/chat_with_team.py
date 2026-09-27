@@ -94,6 +94,8 @@ class ChatWithTeamUseCase:
             user_context["emma_briefing"] = emma_briefing.strip()
         if snapshot is not None:
             user_context["trajectory_action"] = snapshot.action
+            if snapshot.focus_mentor:
+                user_context["trajectory_mentor"] = snapshot.focus_mentor
             if snapshot.failed_criteria:
                 user_context["failed_criteria"] = list(snapshot.failed_criteria[:6])
 

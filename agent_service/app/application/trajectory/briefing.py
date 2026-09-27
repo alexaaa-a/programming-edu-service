@@ -16,6 +16,16 @@ ACTION_TITLES: dict[str, str] = {
 }
 
 
+FOCUS_KINDS: dict[str, str] = {
+    "fix": "перепроверить",
+    "learn": "пробел в знаниях",
+    "review": "пора повторить",
+    "grow": "прокачать",
+    "stretch": "усложнить",
+    "prepare": "подготовиться",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class TrajectorySnapshot:
     action: str
@@ -29,6 +39,14 @@ class TrajectorySnapshot:
     failed_criteria: list[str] = field(default_factory=list)
     block_next_sprint: bool = False
     block_close: bool = False
+    focus_skill: str = ""
+    focus_title: str = ""
+    focus_kind: str = ""
+    focus_why: str = ""
+    focus_mastery: float = 0.0
+    focus_steps: list[str] = field(default_factory=list)
+    focus_mentor: str = ""
+    recommendations: list[str] = field(default_factory=list)
 
 
 def _pct(value: float) -> int:
@@ -61,6 +79,16 @@ def format_trajectory_briefing(snapshot: TrajectorySnapshot | None) -> str:
     ]
     if failed:
         lines.append(f"Не закрыто: {'; '.join(failed[:4])}")
+    if snapshot.focus_title:
+        kind = FOCUS_KINDS.get(snapshot.focus_kind, "фокус")
+        lines.append(
+            f"Фокус траектории ({kind}): «{snapshot.focus_title}», владение {_pct(snapshot.focus_mastery)}%."
+        )
+        if snapshot.focus_why:
+            lines.append(snapshot.focus_why.strip())
+        steps = [step.strip() for step in snapshot.focus_steps if step and step.strip()]
+        if steps:
+            lines.append("Шаги: " + " ".join(f"{index}) {step}" for index, step in enumerate(steps[:3], start=1)))
     if snapshot.block_next_sprint:
         lines.append("Следующий спринт пока рано.")
     if snapshot.block_close:

@@ -1,6 +1,18 @@
-import type { TrajectoryAction, UserTrajectory } from "./types";
+import type {
+  FocusKind,
+  RecommendationKind,
+  SkillStatus,
+  TrajectoryAction,
+  UserTrajectory,
+} from "./types";
 
-export type { TrajectoryAction, UserTrajectory } from "./types";
+export type {
+  TrajectoryAction,
+  TrajectoryFocus,
+  TrajectoryRecommendation,
+  TrajectorySkill,
+  UserTrajectory,
+} from "./types";
 
 export function pct01(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value * 100)));
@@ -61,11 +73,13 @@ export function chatEmptyCopy(trajectory: UserTrajectory | null): { title: strin
   }
   if (trajectory.action === "chat") {
     const failed = trajectory.failed_criteria.filter(Boolean).slice(0, 2).join("; ");
+    const focus = trajectory.focus;
+    const ask = focus ? ` Готовый вопрос: «${focus.ask}»` : "";
     return {
       title: "Разбери замечания",
       body: failed
-        ? `Команда уже видит бриф: ${trajectory.reason} Не закрыто: ${failed}.`
-        : `Команда уже видит бриф: ${trajectory.reason}`,
+        ? `Команда уже видит бриф: ${trajectory.reason} Не закрыто: ${failed}.${ask}`
+        : `Команда уже видит бриф: ${trajectory.reason}${ask}`,
     };
   }
   if (trajectory.action === "revise") {
@@ -78,4 +92,65 @@ export function chatEmptyCopy(trajectory: UserTrajectory | null): { title: strin
     title: "Спроси команду",
     body: trajectory.reason || "Сара за бриф, Эмма за баги, Джон за архитектуру, Майк за данные.",
   };
+}
+
+export function focusKindLabel(kind: FocusKind): string {
+  switch (kind) {
+    case "fix":
+      return "Перепроверить";
+    case "learn":
+      return "Пробел в знаниях";
+    case "review":
+      return "Пора повторить";
+    case "grow":
+      return "Граница умений";
+    case "stretch":
+      return "Следующий уровень";
+    case "prepare":
+      return "Перед первой сдачей";
+    default:
+      return "Фокус";
+  }
+}
+
+export function skillStatusLabel(status: SkillStatus): string {
+  switch (status) {
+    case "mastered":
+      return "освоен";
+    case "learning":
+      return "в процессе";
+    case "gap":
+      return "пробел";
+    case "fading":
+      return "забывается";
+    case "new":
+      return "ещё не было";
+    default:
+      return status;
+  }
+}
+
+export function recommendationLabel(kind: RecommendationKind): string {
+  switch (kind) {
+    case "fix":
+      return "Не закрыто";
+    case "learn":
+      return "Разобрать";
+    case "review":
+      return "Повторить";
+    case "practice":
+      return "Практика";
+    case "next_task":
+      return "Дальше";
+    case "stretch":
+      return "Усложнить";
+    default:
+      return "Шаг";
+  }
+}
+
+export function velocityLabel(velocity: number | undefined): string | null {
+  if (velocity == null || Math.abs(velocity) < 0.005) return null;
+  const points = Math.round(velocity * 100);
+  return `${points > 0 ? "+" : ""}${points} п.п. за неделю`;
 }

@@ -109,6 +109,7 @@ def detect_domains(message: str) -> set[str]:
 def route_without_llm(
         message: str,
         trajectory_action: str | None = None,
+        trajectory_mentor: str | None = None,
 ) -> RouteDecision | None:
     mentioned = detect_mention(message)
     if mentioned is not None:
@@ -136,6 +137,14 @@ def route_without_llm(
             source="keywords",
         )
     if (trajectory_action or "").strip() == "chat":
+        mentor = (trajectory_mentor or "").strip().lower()
+        if mentor in TEAM_BY_ID:
+            return RouteDecision(
+                mode="solo",
+                speaker=TEAM_BY_ID[mentor],
+                reason="траектория: разобрать пробел с профильным участником",
+                source="trajectory",
+            )
         return RouteDecision(
             mode="solo",
             speaker=SARA,

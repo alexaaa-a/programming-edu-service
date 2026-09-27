@@ -56,7 +56,7 @@ export default function LevelSelection() {
         Выбери уровень
       </h1>
       <p className="mt-4 max-w-lg text-[15px] leading-relaxed text-muted-foreground">
-        Это не оценка тебя. Это сложность симуляции — команда подстроится.
+        Уровень задаёт сложность симуляции — команда подстроится под выбор.
       </p>
 
       <div className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-2">

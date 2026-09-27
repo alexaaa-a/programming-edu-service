@@ -4,6 +4,7 @@ from typing import Any
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from submission_service.app.application.interfaces.db.task_cache import TaskCacheInterface
+from submission_service.app.application.trajectory.planner import TaskInfo
 from submission_service.app.config import Settings
 
 
@@ -83,4 +84,23 @@ class TaskCacheDB(TaskCacheInterface):
             return int(doc["round_limit"])
         except Exception:
             self._logger.exception("Failed to get round limit from cache")
+            return None
+
+    async def list_user_tasks(self, user_id: int) -> list[TaskInfo] | None:
+        try:
+            cursor = self._coll.find(
+                {"user_id": user_id},
+                {"_id": 0, "task_id": 1, "status": 1, "task_description": 1},
+            )
+            return [
+                TaskInfo(
+                    task_id=int(doc["task_id"]),
+                    status=str(doc.get("status") or ""),
+                    description=str(doc.get("task_description") or ""),
+                )
+                async for doc in cursor
+                if doc.get("task_id") is not None
+            ]
+        except Exception:
+            self._logger.exception("Failed to list user tasks from cache")
             return None

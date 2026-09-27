@@ -1,6 +1,8 @@
 from abc import abstractmethod
 from typing import Protocol
 
+from submission_service.app.application.trajectory.planner import TaskInfo
+
 
 class TaskCacheInterface(Protocol):
 
@@ -28,4 +30,7 @@ class TaskCacheInterface(Protocol):
         raise NotImplementedError
 
     async def get_round_limit(self, task_id: int, user_id: int) -> int | None:
+        return None
+
+    async def list_user_tasks(self, user_id: int) -> list[TaskInfo] | None:
         return None

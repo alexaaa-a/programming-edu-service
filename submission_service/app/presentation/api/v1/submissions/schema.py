@@ -56,6 +56,44 @@ class UserSubmissionStats(BaseModel):
     tasks_attempted: int
 
 
+class TrajectorySkill(BaseModel):
+    id: str
+    title: str
+    status: str
+    mastery: float
+    predicted_success: float
+    retention: float
+    evidence: float
+    opportunities: int
+    last_practiced_at: datetime.datetime | None = None
+
+
+class TrajectoryFocus(BaseModel):
+    skill_id: str
+    title: str
+    summary: str
+    kind: str
+    status: str
+    mastery: float
+    predicted_success: float
+    why: str
+    steps: list[str] = Field(default_factory=list)
+    mentor: str
+    mentor_name: str
+    ask: str
+    evidence: list[str] = Field(default_factory=list)
+
+
+class TrajectoryRecommendation(BaseModel):
+    kind: str
+    title: str
+    detail: str
+    skill_id: str | None = None
+    task_id: int | None = None
+    mentor: str | None = None
+    ask: str | None = None
+
+
 class UserTrajectory(BaseModel):
     mastery: float
     difficulty: float
@@ -71,3 +109,10 @@ class UserTrajectory(BaseModel):
     current_attempts: int = 0
     current_score: int | None = None
     failed_criteria: list[str] = Field(default_factory=list)
+    velocity: float = 0.0
+    readiness_threshold: float = 0.0
+    skills: list[TrajectorySkill] = Field(default_factory=list)
+    focus: TrajectoryFocus | None = None
+    recommendations: list[TrajectoryRecommendation] = Field(default_factory=list)
+    next_task_id: int | None = None
+    model: str = ""

@@ -7,6 +7,7 @@ import type { AdminRole, Career, UserShow } from "@/lib/types";
 import { GRADE_LABEL, careerRights, formatRub } from "@/lib/career-rights";
 import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
 import { Field, PrimaryButton, selectClass } from "../components/onboarding/Field";
+import { LoadingState } from "../components/LoadingState";
 
 const DIRECTION_OPTIONS = [
   { value: "backend", label: "Backend" },
@@ -88,7 +89,7 @@ export default function Profile() {
         </p>
 
         {loading ? (
-          <p className="py-24 text-sm text-muted-foreground">Загружаем профиль…</p>
+          <LoadingState label="Загружаем профиль…" />
         ) : (
           <form onSubmit={handleSave} className="mt-10 space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

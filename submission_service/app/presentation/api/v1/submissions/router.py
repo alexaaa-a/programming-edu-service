@@ -1,3 +1,5 @@
+from dataclasses import asdict
+
 from fastapi import APIRouter, HTTPException, Request, status
 from dishka.integrations.fastapi import FromDishka, DishkaRoute
 
@@ -11,6 +13,9 @@ from submission_service.app.presentation.api.v1.submissions.schema import (
     Submission,
     Review,
     Submit,
+    TrajectoryFocus,
+    TrajectoryRecommendation,
+    TrajectorySkill,
     UserSubmissionStats,
     UserTrajectory,
 )
@@ -85,6 +90,7 @@ async def get_my_trajectory(
 ):
     user_id = get_current_user_id_or_401(request=request, token_service=token_service)
     result = await uc(user_id=user_id, task_id=task_id)
+    focus = result.focus
     return UserTrajectory(
         mastery=result.mastery,
         difficulty=result.difficulty,
@@ -100,6 +106,13 @@ async def get_my_trajectory(
         current_attempts=result.current_attempts,
         current_score=result.current_score,
         failed_criteria=result.failed_criteria,
+        velocity=result.velocity,
+        readiness_threshold=result.readiness_threshold,
+        skills=[TrajectorySkill(**asdict(item)) for item in result.skills],
+        focus=TrajectoryFocus(**asdict(focus)) if focus is not None else None,
+        recommendations=[TrajectoryRecommendation(**asdict(item)) for item in result.recommendations],
+        next_task_id=result.next_task_id,
+        model=result.model,
     )
 
 

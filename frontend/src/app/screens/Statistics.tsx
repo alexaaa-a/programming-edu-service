@@ -6,6 +6,7 @@ import { getMe, getMyAdminRole, getMySubmissionStats } from "@/lib/api";
 import type { AdminRole, UserSubmissionStats } from "@/lib/types";
 import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
 import { EmptyState } from "../components/EmptyState";
+import { LoadingState } from "../components/LoadingState";
 import { PrimaryButton } from "../components/onboarding/Field";
 import { scoreOutOfTen } from "@/lib/score";
 import { readStreak, streakDaysLabel, touchStreak } from "@/lib/streak";
@@ -95,10 +96,10 @@ export default function Statistics() {
         <p className="font-mono text-[11px] text-primary">Прогресс</p>
         <h1 className="mt-3 text-4xl leading-[1.1]">Как ты растёшь</h1>
         <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-          Не таблица сабмитов, а сигнал: закрываешь ли цикл «написал → получил ревью → поправил».
+          Один цикл: написал → получил ревью → поправил. Смотрим, как часто ты его замыкаешь.
         </p>
 
-        {loading && <p className="py-24 text-sm text-muted-foreground">Считаем метрики…</p>}
+        {loading && <LoadingState label="Считаем метрики…" />}
 
         {!loading && !stats && (
           <EmptyState
@@ -134,7 +135,7 @@ export default function Statistics() {
               ))}
             </div>
             <p className="mt-3 text-[12px] text-muted-foreground">
-              Стрик — дни подряд, когда ты открывал Desk. Не «уроки», а ритм за столом.
+              Стрик — дни подряд, когда ты открывал Desk. Просто счётчик привычки, без штрафов за пропуск.
             </p>
 
             {emptyCycle ? (

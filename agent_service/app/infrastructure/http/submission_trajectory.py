@@ -54,6 +54,19 @@ def _snapshot(payload: dict) -> TrajectorySnapshot:
     criteria: list[str] = []
     if isinstance(failed, list):
         criteria = [str(item).strip() for item in failed if str(item).strip()]
+    focus = payload.get("focus") if isinstance(payload.get("focus"), dict) else {}
+    steps_raw = focus.get("steps")
+    steps = [str(item).strip() for item in steps_raw if str(item).strip()] if isinstance(steps_raw, list) else []
+    recs_raw = payload.get("recommendations")
+    recommendations = (
+        [
+            str(item.get("title") or "").strip()
+            for item in recs_raw
+            if isinstance(item, dict) and str(item.get("title") or "").strip()
+        ]
+        if isinstance(recs_raw, list)
+        else []
+    )
     return TrajectorySnapshot(
         action=str(payload.get("action") or ""),
         reason=str(payload.get("reason") or ""),
@@ -66,6 +79,14 @@ def _snapshot(payload: dict) -> TrajectorySnapshot:
         failed_criteria=criteria,
         block_next_sprint=bool(payload.get("block_next_sprint")),
         block_close=bool(payload.get("block_close")),
+        focus_skill=str(focus.get("skill_id") or ""),
+        focus_title=str(focus.get("title") or ""),
+        focus_kind=str(focus.get("kind") or ""),
+        focus_why=str(focus.get("why") or ""),
+        focus_mastery=_as_float(focus.get("mastery")),
+        focus_steps=steps,
+        focus_mentor=str(focus.get("mentor") or ""),
+        recommendations=recommendations,
     )
 
 

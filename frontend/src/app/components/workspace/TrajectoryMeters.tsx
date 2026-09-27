@@ -25,7 +25,7 @@ function Meter({
             "h-full rounded-full transition-[width] duration-700 ease-out",
             invert
               ? pct >= 50
-                ? "bg-amber-400"
+                ? "bg-warning"
                 : "bg-primary/70"
               : "bg-primary",
           )}

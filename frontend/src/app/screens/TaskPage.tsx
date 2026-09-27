@@ -568,7 +568,7 @@ export default function TaskPage() {
                 </p>
               )}
               {task.status === "done" && task.close_quality === "weak" && (
-                <p className="mt-3 max-w-sm text-xs leading-relaxed text-amber-700 dark:text-amber-400">
+                <p className="mt-3 max-w-sm text-xs leading-relaxed text-warning">
                   Закрыта как слабая — команда не зачла на полный балл.
                 </p>
               )}
@@ -601,8 +601,8 @@ export default function TaskPage() {
                   </div>
                 )}
                 {latest?.status === "failed" && !reviewReady && (
-                  <div className="mt-3 rounded-lg border border-rose-200/80 bg-rose-50/60 px-3 py-2 dark:border-rose-900/50 dark:bg-rose-950/20">
-                    <p className="text-sm font-medium text-rose-800 dark:text-rose-200">
+                  <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2">
+                    <p className="text-sm font-medium text-destructive">
                       Проверка не удалась
                     </p>
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
@@ -627,8 +627,8 @@ export default function TaskPage() {
                             <span
                               className={
                                 item.passed
-                                  ? "shrink-0 text-emerald-600"
-                                  : "shrink-0 text-rose-600"
+                                  ? "shrink-0 text-success"
+                                  : "shrink-0 text-destructive"
                               }
                             >
                               {item.passed ? "✓" : "✗"}
@@ -639,7 +639,7 @@ export default function TaskPage() {
                       </ul>
                     )}
                     {(latest.review.challenges?.length ?? 0) > 0 && (
-                      <div className="mt-3 rounded-lg border border-amber-200/80 bg-amber-50/50 px-3 py-2 dark:border-amber-900/50 dark:bg-amber-950/20">
+                      <div className="mt-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2">
                         <p className="font-mono text-[11px] text-muted-foreground">
                           Независимая проверка
                         </p>

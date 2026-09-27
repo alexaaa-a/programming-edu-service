@@ -118,11 +118,16 @@ class ChatOrchestrator:
             path: AgentPath,
             solo_only: bool = False,
             emma_session: bool = False,
+            trajectory_mentor: str | None = None,
     ) -> tuple[RouteDecision, AgentPath]:
         if emma_session:
             decision = emma_session_route()
         else:
-            decision = await self._route(message, trajectory_action=trajectory_action)
+            decision = await self._route(
+                message,
+                trajectory_action=trajectory_action,
+                trajectory_mentor=trajectory_mentor,
+            )
             if solo_only:
                 decision = limit_to_one_speaker(decision)
         path.record(
@@ -291,13 +296,22 @@ class ChatOrchestrator:
             self,
             message: str,
             trajectory_action: str | None = None,
+            trajectory_mentor: str | None = None,
     ) -> RouteDecision:
         with self._tracer.observation(
             "chat.route",
             as_type="span",
-            input={"message": message[:500], "trajectory_action": trajectory_action},
+            input={
+                "message": message[:500],
+                "trajectory_action": trajectory_action,
+                "trajectory_mentor": trajectory_mentor,
+            },
         ) as obs:
-            decision = await self._route_inner(message, trajectory_action=trajectory_action)
+            decision = await self._route_inner(
+                message,
+                trajectory_action=trajectory_action,
+                trajectory_mentor=trajectory_mentor,
+            )
             obs.update(
                 output={
                     "mode": decision.mode,
@@ -311,8 +325,13 @@ class ChatOrchestrator:
             self,
             message: str,
             trajectory_action: str | None = None,
+            trajectory_mentor: str | None = None,
     ) -> RouteDecision:
-        deterministic = route_without_llm(message, trajectory_action=trajectory_action)
+        deterministic = route_without_llm(
+            message,
+            trajectory_action=trajectory_action,
+            trajectory_mentor=trajectory_mentor,
+        )
         if deterministic is not None:
             return deterministic
         if self._llm is None:
