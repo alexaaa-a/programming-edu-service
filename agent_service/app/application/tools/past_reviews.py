@@ -1,4 +1,11 @@
-from agent_service.app.application.interfaces import MemoryInterface
+from agent_service.app.application.dto.rag import RetrievedDocument
+from agent_service.app.application.dto.student_profile import StudentProfile
+from agent_service.app.application.interfaces import MemoryInterface, StudentProfileRepository
+from agent_service.app.application.memory.provenance import (
+    compress_memory_text,
+    is_fresh,
+    validate_memory_text,
+)
 from agent_service.app.application.tools.models import ToolFinding, ToolReport
 
 
@@ -26,21 +33,19 @@ async def load_past_reviews(
 
 
 async def load_student_notes(
-        memory: MemoryInterface,
+        profiles: StudentProfileRepository | None,
         user_id: str | None,
-        task_description: str,
 ) -> list[ToolFinding]:
-    if not user_id:
+    if not user_id or profiles is None:
         return []
-    query = f"user_id={user_id}\n{task_description}".strip()
-    docs = await memory.retrieve(query=query, k=4, types={"student_note"})
-    docs = [
-        d
-        for d in docs
-        if str((d.metadata or {}).get("type", "")) == "student_note"
-        and str((d.metadata or {}).get("user_id", "")) == str(user_id)
-    ]
-    return _as_findings(docs, prefix="Профиль студента")
+    profile = await _fresh_profile(profiles, str(user_id))
+    if profile is None:
+        return []
+    doc = RetrievedDocument(
+        text=_profile_text(profile.user_id, profile.facts),
+        metadata=_profile_metadata(profile),
+    )
+    return _as_findings([doc], prefix="Профиль студента")
 
 
 async def save_review_memory(
@@ -51,6 +56,7 @@ async def save_review_memory(
         feedback: str,
         suggestions: list[str],
         user_id: str | None = None,
+        profiles: StudentProfileRepository | None = None,
 ) -> None:
     if not task_id and not submission_id:
         return
@@ -73,31 +79,27 @@ async def save_review_memory(
         metadata["submission_id"] = str(submission_id)
         metadata["id"] = f"past_review_{submission_id}"
     await memory.save_document(text, metadata)
-    previous = await load_student_notes(
-        memory,
-        user_id=user_id,
-        task_description=feedback or task_id or "профиль",
-    )
+    if profiles is None:
+        return
+    key = str(user_id)
+    existing = await _fresh_profile(profiles, key)
     facts = compress_student_facts(
         score=score,
         feedback=feedback,
         suggestions=suggestions,
-        previous=[item.message for item in previous],
+        previous=existing.facts if existing is not None else None,
     )
+    facts = [item for item in (compress_memory_text(f, "student_note") for f in facts) if item]
     if not facts:
         return
-    await memory.save_document(
-        f"Студент {user_id}. Типичное: {facts}.",
-        {
-            "type": "student_note",
-            "source": "review_pipeline",
-            "writer": "review_orchestrator",
-            "origin": "student_profile",
-            "user_id": str(user_id),
-            "id": f"student_{user_id}",
-            **({"task_id": str(task_id)} if task_id else {}),
-        },
+    ok, _reason = validate_memory_text(
+        _profile_text(key, facts),
+        doc_type="student_note",
+        metadata={"user_id": key},
     )
+    if not ok:
+        return
+    await profiles.save(key, facts, task_id=str(task_id) if task_id else None)
 
 
 _FACT_HINTS: tuple[tuple[str, str], ...] = (
@@ -121,7 +123,7 @@ def compress_student_facts(
         feedback: str,
         suggestions: list[str],
         previous: list[str] | None = None,
-) -> str:
+) -> list[str]:
     blob = f"{feedback} {' '.join(suggestions)}".lower()
     facts: list[str] = []
     for needle, fact in _FACT_HINTS:
@@ -138,25 +140,43 @@ def compress_student_facts(
                 break
     if not facts and score <= 4:
         facts.append(f"слабые сдачи, скор {score}/10")
-    for item in previous or []:
-        extracted = _facts_from_note(item)
-        for fact in extracted:
-            if fact not in facts:
-                facts.append(fact)
-            if len(facts) >= 2:
-                break
+    for fact in previous or []:
+        if fact not in facts:
+            facts.append(fact)
         if len(facts) >= 2:
             break
-    return "; ".join(facts[:2])
+    return facts[:2]
 
 
-def _facts_from_note(text: str) -> list[str]:
-    marker = "типичное:"
-    lower = text.lower()
-    if marker not in lower:
-        return []
-    tail = text[lower.index(marker) + len(marker) :].strip()
-    return [part.strip() for part in tail.split(";") if part.strip()]
+async def _fresh_profile(
+        profiles: StudentProfileRepository,
+        user_id: str,
+) -> StudentProfile | None:
+    profile = await profiles.get(user_id)
+    if profile is None or not profile.facts:
+        return None
+    if not is_fresh(_profile_metadata(profile)):
+        return None
+    return profile
+
+
+def _profile_text(user_id: str, facts: list[str]) -> str:
+    return f"Студент {user_id}. Типичное: {'; '.join(facts)}."
+
+
+def _profile_metadata(profile: StudentProfile) -> dict[str, str]:
+    meta: dict[str, str] = {
+        "type": "student_note",
+        "source": "review_pipeline",
+        "writer": "review_orchestrator",
+        "origin": "student_profile",
+        "user_id": profile.user_id,
+    }
+    if profile.updated_at is not None:
+        meta["saved_at"] = profile.updated_at.isoformat()
+    if profile.last_task_id:
+        meta["task_id"] = profile.last_task_id
+    return meta
 
 
 def score_cap_from_report(report: ToolReport) -> int | None:

@@ -166,6 +166,19 @@ class LayeredMemory(MemoryInterface):
 
         meta = dict(decision.metadata)
         doc_type = str(meta.get("type") or "best_practice")
+        if doc_type == "student_note":
+            if self._logger is not None:
+                self._logger.warning(
+                    "memory.save.rejected trace_id=%s type=student_note reason=stored_in_profile_repository",
+                    get_trace_id(),
+                )
+            if self._metrics is not None:
+                self._metrics.increment(
+                    "memory_save_rejected_total",
+                    1,
+                    tags={"reason": "student_note_not_vector"},
+                )
+            return
         layer = layer_for_type(doc_type)
         store = self._stores.get(layer)
         if store is None:
@@ -233,6 +246,8 @@ class LayeredMemory(MemoryInterface):
     ) -> list[RetrievedDocument]:
         store = self._stores.get(layer)
         if store is None:
+            return []
+        if types is not None and not types:
             return []
         try:
             result = await store.similarity_search(

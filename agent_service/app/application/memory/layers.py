@@ -1,23 +1,20 @@
 WORKING = "working"
 SEMANTIC = "semantic"
 EPISODIC = "episodic"
-STUDENT = "student"
 
-VECTOR_LAYERS = (SEMANTIC, EPISODIC, STUDENT)
+VECTOR_LAYERS = (SEMANTIC, EPISODIC)
 
 TYPE_TO_LAYER: dict[str, str] = {
     "best_practice": SEMANTIC,
     "bugs": SEMANTIC,
     "past_review": EPISODIC,
     "chat_episode": EPISODIC,
-    "student_note": STUDENT,
     "working": WORKING,
 }
 
 LAYER_TYPES: dict[str, frozenset[str]] = {
     SEMANTIC: frozenset({"best_practice", "bugs"}),
     EPISODIC: frozenset({"past_review", "chat_episode"}),
-    STUDENT: frozenset({"student_note"}),
     WORKING: frozenset({"working"}),
 }
 

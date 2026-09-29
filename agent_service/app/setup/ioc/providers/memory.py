@@ -11,6 +11,7 @@ from agent_service.app.application.interfaces import (
     LLMInterface,
     MemoryInterface,
     RetrieveCache,
+    StudentProfileRepository,
 )
 from agent_service.app.application.observability.metrics_recorder import MetricsRecorder
 from agent_service.app.application.observability.llm_trace import LlmTracer
@@ -22,6 +23,7 @@ from agent_service.app.infrastructure.memory.layered_memory import LayeredMemory
 from agent_service.app.infrastructure.chat_history.mongo_chat_history_repository import (
     MongoChatHistoryRepository,
 )
+from agent_service.app.infrastructure.student_profile import MongoStudentProfileRepository
 
 
 class LLMProvider(Provider):
@@ -114,6 +116,18 @@ class ChatHistoryRepositoryProvider(Provider):
         )
 
 
+class StudentProfileRepositoryProvider(Provider):
+    @provide(scope=Scope.APP, provides=StudentProfileRepository)
+    async def student_profile_repository(
+            self,
+            mongo_client: AsyncIOMotorClient,
+            settings: Settings,
+    ) -> StudentProfileRepository:
+        collection = mongo_client[settings.mongo_settings.name]["student_profiles"]
+        await collection.create_index("user_id", unique=True)
+        return MongoStudentProfileRepository(collection)
+
+
 def _embedding_client(openai_client: AsyncOpenAI, settings: Settings) -> AsyncOpenAI:
     extra = (settings.openai_settings.embedding_base_url or "").strip()
     if not extra:
@@ -130,4 +144,5 @@ MemoryProviders = [
     MemoryProvider(),
     MongoClientProvider(),
     ChatHistoryRepositoryProvider(),
+    StudentProfileRepositoryProvider(),
 ]

@@ -9,7 +9,11 @@ from agent_service.app.application.dto import (
     PathStepResult,
     Review,
 )
-from agent_service.app.application.interfaces import LLMInterface, MemoryInterface
+from agent_service.app.application.interfaces import (
+    LLMInterface,
+    MemoryInterface,
+    StudentProfileRepository,
+)
 from agent_service.app.application.observability.llm_trace import LlmTracer, get_noop_tracer
 from agent_service.app.application.review.acceptance import (
     AcceptanceRubric,
@@ -95,6 +99,7 @@ class ReviewOrchestrator:
             llm: LLMInterface | None = None,
             tracer: LlmTracer | None = None,
             review_graph: Any | None = None,
+            student_profiles: StudentProfileRepository | None = None,
     ) -> None:
         self._reviewer_agent = reviewer_agent
         self._bug_agent = bug_agent
@@ -102,6 +107,7 @@ class ReviewOrchestrator:
         self._adversarial_agent = adversarial_agent
         self._toolkit = toolkit
         self._memory = memory
+        self._student_profiles = student_profiles
         self._llm = llm
         self._tracer = tracer or get_noop_tracer()
         if review_graph is None:
@@ -768,6 +774,7 @@ class ReviewOrchestrator:
                 score=review.score,
                 feedback=review.feedback,
                 suggestions=review.suggestions,
+                profiles=self._student_profiles,
             )
         except Exception:
             logger.exception("tools.past_reviews.save_failed")

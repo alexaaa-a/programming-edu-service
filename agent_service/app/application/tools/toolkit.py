@@ -1,7 +1,7 @@
 import logging
 from dataclasses import replace
 
-from agent_service.app.application.interfaces import MemoryInterface
+from agent_service.app.application.interfaces import MemoryInterface, StudentProfileRepository
 from agent_service.app.application.tools.models import ToolFinding, ToolReport
 from agent_service.app.application.tools.past_reviews import (
     load_past_reviews,
@@ -13,8 +13,14 @@ from agent_service.app.application.tools.static_analysis import analyze_code, de
 
 
 class ReviewToolkit:
-    def __init__(self, memory: MemoryInterface, logger: logging.Logger | None = None) -> None:
+    def __init__(
+            self,
+            memory: MemoryInterface,
+            logger: logging.Logger | None = None,
+            profiles: StudentProfileRepository | None = None,
+    ) -> None:
         self._memory = memory
+        self._profiles = profiles
         self._logger = logger or logging.getLogger("agent_service")
 
     async def inspect(
@@ -58,13 +64,7 @@ class ReviewToolkit:
                 user_id=user_id,
             )
             findings.extend(past)
-            findings.extend(
-                await load_student_notes(
-                    self._memory,
-                    user_id=user_id,
-                    task_description=task_description,
-                ),
-            )
+            findings.extend(await load_student_notes(self._profiles, user_id=user_id))
         except Exception:
             self._logger.exception("tools.past_reviews.failed")
 

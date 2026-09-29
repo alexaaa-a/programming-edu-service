@@ -1,7 +1,6 @@
 from agent_service.app.application.memory.layers import (
     EPISODIC,
     SEMANTIC,
-    STUDENT,
     WORKING,
     layer_for_type,
     layers_for_types,
@@ -19,7 +18,6 @@ from agent_service.app.application.memory.provenance import (
 __all__ = [
     "EPISODIC",
     "SEMANTIC",
-    "STUDENT",
     "WORKING",
     "compress_memory_text",
     "enrich_provenance",
