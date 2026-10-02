@@ -1,7 +1,7 @@
 import json
 import re
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from agent_service.app.application.team import (
     EMMA,
@@ -152,6 +152,27 @@ def route_without_llm(
             source="trajectory",
         )
     return None
+
+
+def route_from_policy(policy: Any) -> RouteDecision | None:
+    speaker_id = getattr(policy, "speaker_id", None)
+    if not speaker_id or speaker_id not in TEAM_BY_ID:
+        return None
+    huddle = bool(getattr(policy, "huddle", False))
+    confidence = float(getattr(policy, "confidence", 0.0) or 0.0)
+    if huddle:
+        return RouteDecision(
+            mode="huddle",
+            speaker=JOHN if speaker_id == "john" else TEAM_BY_ID[speaker_id],
+            reason=f"решающая модель: нужна сверка ролей (p={confidence:.2f})",
+            source="decisions",
+        )
+    return RouteDecision(
+        mode="solo",
+        speaker=TEAM_BY_ID[speaker_id],
+        reason=f"решающая модель: тема роли {speaker_id} (p={confidence:.2f})",
+        source="decisions",
+    )
 
 
 def parse_route_json(raw: str) -> RouteDecision | None:

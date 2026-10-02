@@ -1,3 +1,5 @@
+from dataclasses import asdict
+
 from fastapi import APIRouter, HTTPException, Request, status
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 
@@ -7,10 +9,14 @@ from task_service.app.application.use_case.career.get_career import GetCareerUse
 from task_service.app.application.use_case.career.spend_bonus import SpendBonusUseCase
 from task_service.app.application.use_case.sprint.complete_sprint import CompleteSprintUseCase
 from task_service.app.presentation.api.deps import get_current_user_id_or_401
+from task_service.app.application.quests import BADGE_BY_ID, BADGES, badge_payload, quests
 from task_service.app.presentation.api.v1.career.schema import (
+    CareerBadgeOut,
     CareerLetterOut,
     CareerOut,
+    CareerProgressOut,
     CareerPurchaseOut,
+    CareerQuestOut,
     FridayDemoIn,
     FridayDemoOut,
     SpendBonusIn,
@@ -64,6 +70,29 @@ def _to_out(state: CareerState) -> CareerOut:
             )
             for purchase in state.purchases
         ],
+        progress=CareerProgressOut(**asdict(state.progress)),
+        badges=[
+            CareerBadgeOut(
+                id=badge.id,
+                title=BADGE_BY_ID[badge.id].title,
+                hint=BADGE_BY_ID[badge.id].hint,
+                at=badge.at,
+            )
+            for badge in state.badges
+            if badge.id in BADGE_BY_ID
+        ],
+        quests=[
+            CareerQuestOut(
+                id=quest.id,
+                title=quest.title,
+                hint=quest.hint,
+                current=quest.current,
+                target=quest.target,
+                left=quest.left,
+            )
+            for quest in quests(state.progress, state.badges, limit=len(BADGES))
+        ],
+        badge_total=len(BADGES),
     )
 
 
@@ -157,7 +186,11 @@ async def submit_friday_demo(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=result.message or "Не удалось сохранить письмо",
         )
-    return {"status": "letter", "letter": _letter_out(result.letter).model_dump(mode="json")}
+    return {
+        "status": "letter",
+        "letter": _letter_out(result.letter).model_dump(mode="json"),
+        "unlocked": badge_payload(result.unlocked),
+    }
 
 
 @router.post("/career/accept")
@@ -179,4 +212,8 @@ async def accept_letter_route(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.message or "Шаблон следующего спринта без задач")
     if not result.ok:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result.message or "Не удалось открыть следующий спринт")
-    return {"status": result.status, "forced": result.forced}
+    return {
+        "status": result.status,
+        "forced": result.forced,
+        "unlocked": badge_payload(result.unlocked),
+    }

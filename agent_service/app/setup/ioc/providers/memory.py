@@ -8,6 +8,7 @@ from dishka import Provider, Scope, provide
 
 from agent_service.app.application.interfaces import (
     ChatHistoryRepository,
+    DecisionModelInterface,
     LLMInterface,
     MemoryInterface,
     RetrieveCache,
@@ -56,6 +57,7 @@ class MemoryProvider(Provider):
             settings: Settings,
             logger: logging.Logger,
             tracer: LlmTracer,
+            decisions: DecisionModelInterface,
     ) -> MemoryInterface:
         embeddings = build_embedding_service(
             backend=settings.memory_settings.embedding_backend,
@@ -77,6 +79,12 @@ class MemoryProvider(Provider):
             logger=logger,
             max_retrieve_top_k=settings.memory_settings.max_retrieve_top_k,
             tracer=tracer,
+            decisions=decisions,
+            min_confidence=settings.jev_settings.min_confidence,
+            dedup_similarity=settings.memory_settings.dedup_similarity,
+            rerank_enabled=settings.jev_settings.rerank_enabled,
+            write_gate_enabled=settings.jev_settings.write_gate_enabled,
+            reinforce_enabled=settings.memory_settings.reinforce_enabled,
         )
         return CachedMemory(
             inner=layered,

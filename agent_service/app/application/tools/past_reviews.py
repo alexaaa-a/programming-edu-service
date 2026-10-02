@@ -21,7 +21,12 @@ async def load_past_reviews(
         f"task_id={task_id}\nuser_id={user_id}\n"
         f"{task_description.strip() or 'прошлые ревью этой задачи'}"
     )
-    docs = await memory.retrieve(query=query, k=4, types={"past_review"})
+    docs = await memory.retrieve(
+        query=query,
+        k=4,
+        types={"past_review"},
+        scope={"user_id": str(user_id)},
+    )
     docs = [
         d
         for d in docs

@@ -37,6 +37,7 @@ import {
 import { actionCta, actionTitle } from "@/lib/trajectory";
 import { TrajectoryMeters } from "../components/workspace/TrajectoryMeters";
 import { TrajectoryFocus } from "../components/workspace/TrajectoryFocus";
+import { CareerQuests } from "../components/workspace/CareerQuests";
 import { cn } from "../components/ui/utils";
 
 function pickCurrentTask(board: BoardResponse): TaskResponse | null {
@@ -723,6 +724,8 @@ export default function Dashboard() {
                 chatTask={current ? { taskId: current.task_id, taskTitle: current.title } : null}
               />
             ) : null}
+
+            {career ? <CareerQuests className="mt-6" career={career} /> : null}
 
             <section id="path" className="mt-12 scroll-mt-8">
               <div className="mb-5 flex items-end justify-between gap-4">

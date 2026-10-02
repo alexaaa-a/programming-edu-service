@@ -5,6 +5,7 @@ import { useRequireAuth } from "../hooks/useRequireAuth";
 import { getCareer, getMe, getMyAdminRole, updateProfile } from "@/lib/api";
 import type { AdminRole, Career, UserShow } from "@/lib/types";
 import { GRADE_LABEL, careerRights, formatRub } from "@/lib/career-rights";
+import { BadgeGlyph } from "../components/BadgeGlyph";
 import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
 import { Field, PrimaryButton, selectClass } from "../components/onboarding/Field";
 import { LoadingState } from "../components/LoadingState";
@@ -157,6 +158,34 @@ export default function Profile() {
               </button>
             </div>
           </form>
+        )}
+
+        {!loading && career && (career.badges?.length ?? 0) > 0 && (
+          <section className="mt-14 border-t border-border pt-10">
+            <p className="font-mono text-[11px] text-primary">Полка</p>
+            <h2 className="mt-3 text-3xl">Бейджи</h2>
+            <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+              Выдаются за закрытые задачи и события спринта. Собрано{" "}
+              {career.badges!.length} из {career.badge_total ?? career.badges!.length}.
+            </p>
+            <ul className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {career.badges!.map((badge) => (
+                <li
+                  key={badge.id}
+                  className="rounded-[10px] border border-primary/30 bg-primary/5 p-4"
+                >
+                  <BadgeGlyph id={badge.id} className="size-4 text-primary" />
+                  <p className="mt-2 text-sm leading-snug">{badge.title}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    {badge.hint}
+                  </p>
+                  <p className="mt-2 font-mono text-[10px] text-muted-foreground">
+                    {new Date(badge.at).toLocaleDateString("ru-RU")}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
 
         {!loading && careerRights(career?.grade).reopenLetter && (career?.letters.length ?? 0) > 0 && (

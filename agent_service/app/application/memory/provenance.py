@@ -1,3 +1,4 @@
+import math
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -21,6 +22,8 @@ MAX_AGE_DAYS: dict[str, float | None] = {
 }
 
 _DEFAULT_HALF_LIFE = 14.0
+_USES_WEIGHT = 0.35
+_USES_HALF_GAIN = 3.0
 _FLUFF_MARKERS = (
     "как языковая модель",
     "я не могу",
@@ -178,9 +181,51 @@ def recency_multiplier(
     age = document_age_days(meta, now=now)
     if age is None:
         return 1.0
-    import math
-
     return 1.0 + 0.45 * math.exp(-age / max(half_life, 0.1))
+
+
+def usefulness_multiplier(
+        metadata: dict[str, Any] | None,
+        now: datetime | None = None,
+) -> float:
+    base = recency_multiplier(metadata, now=now)
+    uses = _as_int((metadata or {}).get("uses"))
+    if uses <= 0:
+        return base
+    return base + _USES_WEIGHT * (uses / (uses + _USES_HALF_GAIN))
+
+
+def reinforced_metadata(
+        metadata: dict[str, Any] | None,
+        now: datetime | None = None,
+) -> dict[str, Any]:
+    meta = dict(metadata or {})
+    meta["uses"] = _as_int(meta.get("uses")) + 1
+    meta["last_used_at"] = (now or datetime.now(tz=timezone.utc)).isoformat()
+    return meta
+
+
+def merged_metadata(
+        previous: dict[str, Any] | None,
+        fresh: dict[str, Any],
+        now: datetime | None = None,
+) -> dict[str, Any]:
+    old = previous or {}
+    meta = dict(fresh)
+    created = str(old.get("created_at") or old.get("saved_at") or "").strip()
+    if created:
+        meta["created_at"] = created
+    meta["saved_at"] = (now or datetime.now(tz=timezone.utc)).isoformat()
+    meta["uses"] = _as_int(old.get("uses"))
+    meta["merges"] = _as_int(old.get("merges")) + 1
+    return meta
+
+
+def _as_int(value: Any) -> int:
+    try:
+        return max(int(value), 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def format_provenance(metadata: dict[str, Any] | None, now: datetime | None = None) -> str:
@@ -210,6 +255,9 @@ def format_provenance(metadata: dict[str, Any] | None, now: datetime | None = No
             parts.append("age=<1d")
         else:
             parts.append(f"age={int(age)}d")
+    uses = _as_int(meta.get("uses"))
+    if uses:
+        parts.append(f"uses={uses}")
     if int(meta.get("verified") or 1) == 0:
         parts.append("unverified")
     return " | ".join(parts)

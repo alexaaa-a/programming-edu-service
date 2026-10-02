@@ -3,8 +3,14 @@ import asyncio
 import logging
 from typing import Any, Protocol
 
+from agent_service.app.application.decisions import (
+    ChatTurnPolicy,
+    chat_turn_questions,
+    chat_turn_state,
+    read_chat_turn,
+)
 from agent_service.app.application.dto.chat import ChatTurnResult, PathStepResult
-from agent_service.app.application.interfaces import LLMInterface
+from agent_service.app.application.interfaces import DecisionModelInterface, LLMInterface
 from agent_service.app.application.observability.llm_trace import LlmTracer, get_noop_tracer
 from agent_service.app.application.review.agent_path import AgentPath, evaluate_chat_path
 from agent_service.app.application.review.checkpoints import content_hash
@@ -13,8 +19,10 @@ from agent_service.app.application.team import TeamMember, member_by_id
 from agent_service.app.application.team_router import (
     RouteDecision,
     default_route,
+    detect_mention,
     huddle_advisors,
     parse_route_json,
+    route_from_policy,
     route_system_prompt,
     emma_session_route,
     limit_to_one_speaker,
@@ -47,6 +55,8 @@ class ChatOrchestrator:
             logger: logging.Logger | None = None,
             tracer: LlmTracer | None = None,
             chat_graph: Any | None = None,
+            decisions: DecisionModelInterface | None = None,
+            min_confidence: float = 0.6,
     ) -> None:
         self._chat_agent = chat_agent
         self._llm = llm
@@ -55,6 +65,8 @@ class ChatOrchestrator:
         if chat_graph is None:
             raise ValueError("chat_graph is required")
         self._chat_graph = chat_graph
+        self._decisions = decisions
+        self._min_confidence = min_confidence
 
     async def run(
             self,
@@ -119,7 +131,10 @@ class ChatOrchestrator:
             solo_only: bool = False,
             emma_session: bool = False,
             trajectory_mentor: str | None = None,
+            user_context: Any = None,
+            chat_history: list[Any] | None = None,
     ) -> tuple[RouteDecision, AgentPath]:
+        policy = await self._decide_turn(message, user_context, chat_history)
         if emma_session:
             decision = emma_session_route()
         else:
@@ -127,9 +142,20 @@ class ChatOrchestrator:
                 message,
                 trajectory_action=trajectory_action,
                 trajectory_mentor=trajectory_mentor,
+                policy=policy,
             )
             if solo_only:
                 decision = limit_to_one_speaker(decision)
+        if policy is not None:
+            path.record(
+                "coach",
+                kind="step",
+                status="ok",
+                detail=(
+                    f"solution_seeking={int(policy.solution_seeking)},"
+                    f"frustration={policy.frustration}"
+                ),
+            )
         path.record(
             "route",
             kind="step",
@@ -292,11 +318,50 @@ class ChatOrchestrator:
             ],
         )
 
+    async def _decide_turn(
+            self,
+            message: str,
+            user_context: Any,
+            chat_history: list[Any] | None,
+    ) -> ChatTurnPolicy | None:
+        if self._decisions is None or not self._decisions.enabled:
+            return None
+        context = user_context if isinstance(user_context, dict) else {}
+        answers = await self._decisions.ask(
+            chat_turn_state(
+                message=message,
+                task_title=context.get("task_title"),
+                task_description=context.get("task_description"),
+                briefing=context.get("trajectory_briefing"),
+                history_tail=_history_tail(chat_history),
+            ),
+            chat_turn_questions(),
+            label="chat_turn",
+        )
+        policy = read_chat_turn(answers, min_confidence=self._min_confidence)
+        if policy is None:
+            return None
+        lines = policy.coach_lines()
+        if lines and isinstance(user_context, dict):
+            user_context["coach"] = lines
+        self._logger.info(
+            "chat.turn.policy speaker=%s huddle=%s solution_seeking=%s frustration=%s "
+            "confidence=%.2f latency_ms=%.0f",
+            policy.speaker_id or "-",
+            policy.huddle,
+            policy.solution_seeking,
+            policy.frustration,
+            policy.confidence,
+            answers.latency_ms,
+        )
+        return policy
+
     async def _route(
             self,
             message: str,
             trajectory_action: str | None = None,
             trajectory_mentor: str | None = None,
+            policy: ChatTurnPolicy | None = None,
     ) -> RouteDecision:
         with self._tracer.observation(
             "chat.route",
@@ -311,6 +376,7 @@ class ChatOrchestrator:
                 message,
                 trajectory_action=trajectory_action,
                 trajectory_mentor=trajectory_mentor,
+                policy=policy,
             )
             obs.update(
                 output={
@@ -326,7 +392,20 @@ class ChatOrchestrator:
             message: str,
             trajectory_action: str | None = None,
             trajectory_mentor: str | None = None,
+            policy: ChatTurnPolicy | None = None,
     ) -> RouteDecision:
+        mentioned = detect_mention(message)
+        if mentioned is not None:
+            return RouteDecision(
+                mode="solo",
+                speaker=mentioned,
+                reason="пользователь позвал по имени",
+                source="mention",
+            )
+        if policy is not None:
+            from_policy = route_from_policy(policy)
+            if from_policy is not None:
+                return from_policy
         deterministic = route_without_llm(
             message,
             trajectory_action=trajectory_action,
@@ -370,6 +449,22 @@ def _trajectory_action(user_context: Any) -> str | None:
     if isinstance(raw, str) and raw.strip():
         return raw.strip()
     return None
+
+
+def _history_tail(chat_history: list[Any] | None, limit: int = 4) -> list[str]:
+    if not chat_history:
+        return []
+    tail: list[str] = []
+    for item in list(chat_history)[-limit:]:
+        if isinstance(item, dict):
+            role = str(item.get("role") or "")
+            content = str(item.get("content") or "")
+        else:
+            role = str(getattr(item, "role", "") or "")
+            content = str(getattr(item, "content", "") or "")
+        if content:
+            tail.append(f"{role}: {content}"[:400])
+    return tail
 
 
 def _route_user_prompt(message: str, trajectory_action: str | None) -> str:

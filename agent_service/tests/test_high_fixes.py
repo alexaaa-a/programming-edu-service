@@ -24,8 +24,8 @@ class _Memory:
         self.docs = docs
         self.queries: list[dict[str, Any]] = []
 
-    async def retrieve(self, query: str, k: int = 4, types: set[str] | None = None):
-        self.queries.append({"query": query, "k": k, "types": types})
+    async def retrieve(self, query: str, k: int = 4, types: set[str] | None = None, scope=None):
+        self.queries.append({"query": query, "k": k, "types": types, "scope": scope})
         return list(self.docs)
 
     async def save_document(self, text: str, metadata: dict) -> None:

@@ -73,6 +73,8 @@ async def run_route_node(state: ChatState, runtime: Runtime[ChatGraphRuntime]) -
         path=_path(state),
         solo_only=solo_only,
         emma_session=emma_session,
+        user_context=user_context,
+        chat_history=list(state.get("chat_history") or []),
         trajectory_mentor=(
             str(user_context.get("trajectory_mentor") or "") or None
             if isinstance(user_context, dict)

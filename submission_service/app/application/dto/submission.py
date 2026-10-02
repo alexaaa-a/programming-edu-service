@@ -3,11 +3,18 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class SkillShareDTO:
+    skill_id: str
+    share: float
+
+
+@dataclass
 class CriterionResultDTO:
     id: str
     text: str
     passed: bool
     note: str = ""
+    skills: list[SkillShareDTO] = field(default_factory=list)
 
 
 @dataclass

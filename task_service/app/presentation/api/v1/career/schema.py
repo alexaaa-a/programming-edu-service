@@ -29,6 +29,37 @@ class FridayDemoOut(BaseModel):
     criterion: str | None = None
 
 
+class CareerBadgeOut(BaseModel):
+    id: str
+    title: str
+    hint: str
+    at: datetime
+
+
+class CareerQuestOut(BaseModel):
+    id: str
+    title: str
+    hint: str
+    current: int
+    target: int
+    left: int
+
+
+class CareerProgressOut(BaseModel):
+    closes_ok: int = 0
+    closes_weak: int = 0
+    streak_ok: int = 0
+    best_streak: int = 0
+    first_try: int = 0
+    nines: int = 0
+    peer_found: int = 0
+    incidents_done: int = 0
+    demos_held: int = 0
+    sprints: int = 0
+    promotions: int = 0
+    purchases: int = 0
+
+
 class CareerOut(BaseModel):
     grade: str
     salary: int
@@ -42,6 +73,10 @@ class CareerOut(BaseModel):
     pending_letter: CareerLetterOut | None = None
     pending_forced: bool = False
     pending_demo: FridayDemoOut | None = None
+    progress: CareerProgressOut = CareerProgressOut()
+    badges: list[CareerBadgeOut] = []
+    quests: list[CareerQuestOut] = []
+    badge_total: int = 0
 
 
 class FridayDemoIn(BaseModel):

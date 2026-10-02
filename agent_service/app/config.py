@@ -68,10 +68,31 @@ class OpenAISettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AGENT_SERVICE_OPENAI_")
 
 
+class JevSettings(BaseSettings):
+    enabled: bool = True
+    api_key: str
+    base_url: str = "https://openrouter.ai/api"
+    model: str = "typesafe/jev-1.13"
+    timeout_sec: float = 3.0
+    min_confidence: float = 0.6
+    failure_threshold: int = 3
+    cooldown_sec: float = 60.0
+    rerank_enabled: bool = True
+    write_gate_enabled: bool = True
+
+    model_config = SettingsConfigDict(env_prefix="AGENT_SERVICE_JEV_")
+
+    @property
+    def is_enabled(self) -> bool:
+        return bool(self.enabled and self.api_key.strip() and self.model.strip())
+
+
 class MemorySettings(BaseSettings):
     embedding_backend: str = "openai"
     persist_dir: str = "/app/agent_service/data/vector_store"
     max_retrieve_top_k: int = 8
+    dedup_similarity: float = 0.92
+    reinforce_enabled: bool = True
 
     model_config = SettingsConfigDict(env_prefix="AGENT_SERVICE_MEMORY_")
 
@@ -128,6 +149,7 @@ class Settings(BaseSettings):
     logging_settings: LoggingSettings = LoggingSettings()  # type: ignore[call-arg]
     kafka_settings: KafkaSettings = KafkaSettings()  # type: ignore[call-arg]
     openai_settings: OpenAISettings = OpenAISettings()  # type: ignore[call-arg]
+    jev_settings: JevSettings = JevSettings()
     memory_settings: MemorySettings = MemorySettings()
     mongo_settings: MongoSettings = MongoSettings()  # type: ignore[call-arg]
     tinydb_settings: TinyDbSettings = TinyDbSettings()

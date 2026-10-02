@@ -441,7 +441,8 @@ class RAGRetrieveSkill:
         types = kwargs.get("types")
         if types is not None and not isinstance(types, set):
             types = set(map(str, types))
-        return await self.memory.retrieve(query=query, k=k, types=types)
+        scope = kwargs.get("scope")
+        return await self.memory.retrieve(query=query, k=k, types=types, scope=scope)
 
 
 @dataclass(frozen=True, slots=True)
@@ -533,6 +534,14 @@ class BuildChatPromptsSkill:
             "Если в истории чата раньше встречалось такое как «имя задачи» — считай это ошибкой и не опирайся на это."
         )
 
+    def _coach_block(self, context: Any) -> str:
+        if not isinstance(context, dict):
+            return ""
+        lines = context.get("coach")
+        if not isinstance(lines, (list, tuple)) or not lines:
+            return ""
+        return "".join(f"{str(line).strip()}\n" for line in lines if str(line).strip())
+
     async def run(self, **kwargs: Any) -> tuple[str, str]:
         message = str(kwargs["message"])
         chat_history = kwargs["chat_history"]
@@ -579,6 +588,7 @@ class BuildChatPromptsSkill:
                 "Письмо отметит слабый зачёт, оклад не режется. Не говори, что к новому спринту рано из-за слабого зачёта.\n"
                 "Правила доски — спринт, премия, оклад, «к выполнению» — не критерии кода. Их не разбирай как дыру в функции.\n"
                 "Не предлагай закрыть задачу, если шаг — правка или разбор замечаний.\n"
+                f"{self._coach_block(context)}"
                 "Объём: примерно 80–180 слов.\n"
             )
 

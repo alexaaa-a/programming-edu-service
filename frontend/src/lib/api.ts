@@ -4,6 +4,7 @@ import {
   getRefreshToken,
   setTokens,
 } from "./auth-storage";
+import { pushUnlocked } from "./unlocks";
 import type {
   AdminUser,
   AuthResult,
@@ -209,8 +210,18 @@ export async function getBoard(): Promise<BoardResponse> {
 export async function updateTaskStatus(
   taskId: number,
   status: string,
-): Promise<void> {
-  await patchJson(`/api/task/v1/tasks/${taskId}/status`, { status });
+): Promise<{ close_quality?: string | null }> {
+  const res = await apiFetch(`/api/task/v1/tasks/${taskId}/status`, {
+    method: "PATCH",
+    json: { status },
+  });
+  if (!res.ok) throw new Error(await parseApiError(res));
+  const data = (await res.json().catch(() => ({}))) as {
+    close_quality?: string | null;
+    unlocked?: unknown;
+  };
+  pushUnlocked(data.unlocked);
+  return { close_quality: data.close_quality ?? null };
 }
 
 export async function submitPeerReview(
@@ -223,7 +234,13 @@ export async function submitPeerReview(
     body: JSON.stringify({ note }),
   });
   if (!res.ok) throw new Error(await parseApiError(res));
-  return res.json() as Promise<{ close_quality: string; emma: string }>;
+  const data = (await res.json()) as {
+    close_quality: string;
+    emma: string;
+    unlocked?: unknown;
+  };
+  pushUnlocked(data.unlocked);
+  return { close_quality: data.close_quality, emma: data.emma };
 }
 
 export async function submitCode(taskId: number, code: string): Promise<number> {
@@ -296,7 +313,8 @@ export async function completeSprint(force = false): Promise<"letter" | "demo" |
     }
   }
   if (!res.ok) throw new Error(await parseApiError(res));
-  const data = (await res.json()) as { status?: string };
+  const data = (await res.json()) as { status?: string; unlocked?: unknown };
+  pushUnlocked(data.unlocked);
   if (data.status === "letter" || data.status === "demo") return data.status;
   return "closed";
 }
@@ -308,7 +326,8 @@ export async function submitFridayDemo(pitch: string, answer: string): Promise<C
     body: JSON.stringify({ pitch, answer }),
   });
   if (!res.ok) throw new Error(await parseApiError(res));
-  const data = (await res.json()) as { letter?: CareerLetter };
+  const data = (await res.json()) as { letter?: CareerLetter; unlocked?: unknown };
+  pushUnlocked(data.unlocked);
   if (!data.letter) throw new Error("Письмо не пришло");
   return data.letter;
 }
@@ -319,6 +338,8 @@ export async function spendBonus(item: string, taskId?: number): Promise<Career>
     json: { item, task_id: taskId ?? null },
   });
   if (!res.ok) throw new Error(await parseApiError(res));
+  // Покупка не присылает отдельный список новых бейджей: «Вложился в себя»
+  // появится на панели целей при следующей загрузке карьеры.
   return res.json() as Promise<Career>;
 }
 
@@ -331,6 +352,8 @@ export async function consumeEmmaSession(): Promise<Career> {
 export async function acceptCareerLetter(): Promise<void> {
   const res = await apiFetch("/api/task/v1/career/accept", { method: "POST" });
   if (!res.ok) throw new Error(await parseApiError(res));
+  const data = (await res.json().catch(() => ({}))) as { unlocked?: unknown };
+  pushUnlocked(data.unlocked);
 }
 
 export class SprintHoldError extends Error {

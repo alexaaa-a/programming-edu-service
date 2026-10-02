@@ -1,6 +1,14 @@
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 
+from task_service.app.application.quests import (
+    CareerBadge,
+    CareerProgress,
+    apply_purchase,
+    apply_sprint,
+    award,
+)
+
 Grade = str
 
 GRADES: tuple[str, ...] = ("intern", "junior", "junior_plus", "strong", "offer")
@@ -69,6 +77,8 @@ class CareerState:
     pending_letter: CareerLetter | None = None
     pending_forced: bool = False
     pending_demo: FridayDemo | None = None
+    progress: CareerProgress = CareerProgress()
+    badges: tuple[CareerBadge, ...] = ()
 
 
 APPEAL_GRADES = frozenset({"strong", "offer"})
@@ -146,22 +156,15 @@ def spend_bonus(
         return None, "insufficient_bonus"
     stamp = now or datetime.now(tz=timezone.utc)
     purchase = CareerPurchase(item=item, price=price, at=stamp, task_id=task_id)
+    progress = apply_purchase(state.progress)
+    badges, _unlocked = award(progress, state.badges, now=stamp)
     return (
-        CareerState(
-            user_id=state.user_id,
-            grade=state.grade,
-            salary=state.salary,
+        replace(
+            state,
             bonus=state.bonus - price,
-            equity=state.equity,
-            raise_blocked=state.raise_blocked,
-            incident_used=state.incident_used,
-            appeal_used=state.appeal_used,
-            letters=state.letters,
             purchases=state.purchases + (purchase,),
-            created_at=state.created_at,
-            pending_letter=state.pending_letter,
-            pending_forced=state.pending_forced,
-            pending_demo=state.pending_demo,
+            progress=progress,
+            badges=badges,
         ),
         None,
     )
@@ -186,25 +189,7 @@ def consume_emma_session(state: CareerState) -> tuple[CareerState | None, str | 
             purchases.append(purchase)
     if not found:
         return None, "nothing_to_use"
-    return (
-        CareerState(
-            user_id=state.user_id,
-            grade=state.grade,
-            salary=state.salary,
-            bonus=state.bonus,
-            equity=state.equity,
-            raise_blocked=state.raise_blocked,
-            incident_used=state.incident_used,
-            appeal_used=state.appeal_used,
-            letters=state.letters,
-            purchases=tuple(purchases),
-            created_at=state.created_at,
-            pending_letter=state.pending_letter,
-            pending_forced=state.pending_forced,
-            pending_demo=state.pending_demo,
-        ),
-        None,
-    )
+    return replace(state, purchases=tuple(purchases)), None
 
 
 def offer_equity(state: CareerState, kind: str, new_grade: str) -> int:
@@ -380,22 +365,27 @@ def draft_sprint_letter(
     )
 
 
-def accept_letter(state: CareerState) -> CareerState | None:
+def accept_letter(state: CareerState, now: datetime | None = None) -> CareerState | None:
     letter = state.pending_letter
     if letter is None:
         return None
-    return CareerState(
-        user_id=state.user_id,
+    progress = apply_sprint(
+        state.progress,
+        promoted=letter.kind == "promote" and letter.new_grade != letter.old_grade,
+    )
+    badges, _unlocked = award(progress, state.badges, now=now or letter.at)
+    return replace(
+        state,
         grade=letter.new_grade,
         salary=letter.new_salary,
         bonus=letter.bonus_paid,
         equity=offer_equity(state, letter.kind, letter.new_grade),
         raise_blocked=letter.kind != "promote",
-        incident_used=state.incident_used,
         appeal_used=False,
         letters=state.letters + (letter,),
-        purchases=state.purchases,
-        created_at=state.created_at,
         pending_letter=None,
         pending_forced=False,
+        pending_demo=None,
+        progress=progress,
+        badges=badges,
     )

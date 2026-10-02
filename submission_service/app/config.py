@@ -51,9 +51,27 @@ class ReviewLoopSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SUBMISSION_SERVICE_REVIEW_")
 
 
+class JevSettings(BaseSettings):
+    enabled: bool = True
+    api_key: str
+    base_url: str = "https://openrouter.ai/api"
+    model: str = "typesafe/jev-1.13"
+    timeout_sec: float = 4.0
+    min_confidence: float = 0.6
+    failure_threshold: int = 3
+    cooldown_sec: float = 60.0
+
+    model_config = SettingsConfigDict(env_prefix="SUBMISSION_SERVICE_JEV_")
+
+    @property
+    def is_enabled(self) -> bool:
+        return bool(self.enabled and self.api_key.strip() and self.model.strip())
+
+
 class Settings(BaseSettings):
     mongo_settings: MongoSettings = MongoSettings()  # type: ignore[call-arg]
     token_settings: TokenSettings = TokenSettings()  # type: ignore[call-arg]
     logging_settings: LoggingSettings = LoggingSettings()
     kafka_settings: KafkaSettings = KafkaSettings()  # type: ignore[call-arg]
     review_loop_settings: ReviewLoopSettings = ReviewLoopSettings()
+    jev_settings: JevSettings = JevSettings()  # type: ignore[call-arg]

@@ -1,9 +1,11 @@
 import datetime
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
-from task_service.app.application.career import local_round_limit
+from task_service.app.application.career import local_round_limit, new_intern
+from task_service.app.application.close_gate import normalize_score
+from task_service.app.application.quests import apply_close, award
 from task_service.app.config import Settings
 from task_service.app.application.night_incident import open_night_incident
 from task_service.app.application.peer_review import is_peer_review_task
@@ -23,6 +25,7 @@ class UpdateTaskStatusResult:
     error: str | None = None
     message: str | None = None
     close_quality: str | None = None
+    unlocked: tuple[str, ...] = ()
 
 
 class UpdateTaskStatusUseCase:
@@ -90,10 +93,13 @@ class UpdateTaskStatusUseCase:
 
         completed_at = None
         close_quality = None
+        best_score: float | None = None
+        attempts = 0
         if new_status == self.FINISH_STATUS:
-            decision, error = await self._close_gate(task_id, user_id, authorization)
+            closing, error = await self._close_gate(task_id, user_id, authorization)
             if error is not None:
                 return error
+            decision, best_score, attempts = closing
             close_quality = decision.quality
             completed_at = datetime.datetime.now()
 
@@ -151,7 +157,46 @@ class UpdateTaskStatusUseCase:
                 quality=close_quality,
                 career_llm=self.career_llm,
             )
-        return UpdateTaskStatusResult(ok=True, close_quality=close_quality)
+        unlocked: tuple[str, ...] = ()
+        if new_status == self.FINISH_STATUS:
+            unlocked = await self._record_close(
+                user_id=user_id,
+                quality=close_quality,
+                score=best_score,
+                attempts=attempts,
+            )
+        return UpdateTaskStatusResult(
+            ok=True,
+            close_quality=close_quality,
+            unlocked=unlocked,
+        )
+
+    async def _record_close(
+            self,
+            user_id: int,
+            quality: str | None,
+            score: float | None,
+            attempts: int,
+    ) -> tuple[str, ...]:
+        """Счётчики и бейджи за закрытие. Сбой здесь не отменяет закрытие."""
+        if self.career_db is None:
+            return ()
+        try:
+            career = await self.career_db.get(user_id) or new_intern(user_id)
+            progress = apply_close(
+                career.progress,
+                quality=quality,
+                score=score,
+                attempts=attempts,
+            )
+            badges, unlocked = award(progress, career.badges)
+            saved = await self.career_db.save(
+                replace(career, progress=progress, badges=badges)
+            )
+            return unlocked if saved else ()
+        except Exception:
+            _logger.exception("close progress failed user_id=%s", user_id)
+            return ()
 
     async def _round_limit(self, user_id: int, task_id: int) -> int:
         if self.career_db is None:
@@ -165,6 +210,7 @@ class UpdateTaskStatusUseCase:
             user_id: int,
             authorization: str | None,
     ) -> tuple[Any, UpdateTaskStatusResult | None]:
+        """Решение о закрытии плюс лучший балл и число сдач — для бейджей."""
         snapshots = await self.review_gateway.get_task_reviews(
             task_id,
             authorization or "",
@@ -184,4 +230,10 @@ class UpdateTaskStatusUseCase:
                 error="close_blocked",
                 message=decision.reason,
             )
-        return decision, None
+        scores = [
+            normalize_score(item.score)
+            for item in snapshots
+            if getattr(item, "score", None) is not None
+        ]
+        best = max(scores) if scores else None
+        return (decision, best, len(scores)), None

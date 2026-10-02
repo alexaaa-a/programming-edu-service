@@ -1,7 +1,7 @@
 import datetime
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from task_service.app.application.dto.sprint import SprintDTO
@@ -35,13 +35,13 @@ from task_service.app.application.weak_tail import append_weak_tail, failed_crit
 from task_service.app.application.interfaces.db.career_db import CareerDBInterface
 from task_service.app.application.career import (
     CareerLetter,
-    CareerState,
     FridayDemo,
     accept_letter,
     draft_sprint_letter,
     new_intern,
 )
 from task_service.app.application.friday_demo import build_friday_demo, score_friday_demo
+from task_service.app.application.quests import apply_demo, award
 from task_service.app.application.sprint_hold import evaluate_sprint_hold
 
 _logger = logging.getLogger(__name__)
@@ -58,6 +58,7 @@ class CompleteSprintResult:
     task_count: int = 0
     letter: CareerLetter | None = None
     demo: FridayDemo | None = None
+    unlocked: tuple[str, ...] = ()
 
 
 class CompleteSprintUseCase:
@@ -160,18 +161,9 @@ class CompleteSprintUseCase:
                 demo=career.pending_demo,
             )
         demo = await self._open_demo(tasks, authorization, trajectory_blocked=decision.hold)
-        career = CareerState(
-            user_id=career.user_id,
-            grade=career.grade,
-            salary=career.salary,
-            bonus=career.bonus,
-            equity=career.equity,
-            raise_blocked=career.raise_blocked,
-            incident_used=career.incident_used,
+        career = replace(
+            career,
             appeal_used=True if consume_appeal else career.appeal_used,
-            letters=career.letters,
-            purchases=career.purchases,
-            created_at=career.created_at,
             pending_letter=None,
             pending_forced=force,
             pending_demo=demo,
@@ -239,28 +231,22 @@ class CompleteSprintUseCase:
                 error="empty",
                 message="Напиши питч и ответ на вопрос Сары.",
             )
+        incident = incident_outcome(tasks)
         letter = draft_sprint_letter(
             career,
             [(task.title, task.close_quality) for task in graded_tasks(tasks)],
             trajectory_blocked=career.pending_demo.trajectory_blocked,
             demo_held=held,
-            incident=incident_outcome(tasks),
+            incident=incident,
         )
-        career = CareerState(
-            user_id=career.user_id,
-            grade=career.grade,
-            salary=career.salary,
-            bonus=career.bonus,
-            equity=career.equity,
-            raise_blocked=career.raise_blocked,
-            incident_used=career.incident_used,
-            appeal_used=career.appeal_used,
-            letters=career.letters,
-            purchases=career.purchases,
-            created_at=career.created_at,
+        progress = apply_demo(career.progress, held=held, incident=incident)
+        badges, unlocked = award(progress, career.badges)
+        career = replace(
+            career,
             pending_letter=letter,
-            pending_forced=career.pending_forced,
             pending_demo=None,
+            progress=progress,
+            badges=badges,
         )
         if not await self.career_db.save(career):
             return CompleteSprintResult(error="update_failed", message="Не удалось сохранить письмо")
@@ -269,6 +255,7 @@ class CompleteSprintUseCase:
             status="letter",
             forced=career.pending_forced,
             letter=letter,
+            unlocked=unlocked,
         )
 
     async def _open_demo(
@@ -305,6 +292,8 @@ class CompleteSprintUseCase:
         applied = accept_letter(career)
         if applied is None or not await self.career_db.save(applied):
             return CompleteSprintResult(error="update_failed", message="Не удалось принять письмо")
+        had = {badge.id for badge in career.badges}
+        unlocked = tuple(badge.id for badge in applied.badges if badge.id not in had)
 
         result = await self._open_next(
             user_id=user_id,
@@ -316,7 +305,8 @@ class CompleteSprintUseCase:
         )
         if not result.ok:
             await self.career_db.save(career)
-        return result
+            return result
+        return replace(result, unlocked=unlocked)
 
     async def _open_next(
             self,

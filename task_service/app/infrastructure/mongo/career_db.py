@@ -2,10 +2,13 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from dataclasses import asdict
+
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from task_service.app.application.career import CareerLetter, CareerPurchase, CareerState, FridayDemo
 from task_service.app.application.interfaces.db.career_db import CareerDBInterface
+from task_service.app.application.quests import BADGE_BY_ID, CareerBadge, CareerProgress
 from task_service.app.config import Settings
 
 
@@ -88,6 +91,8 @@ def _to_doc(state: CareerState) -> dict[str, Any]:
         "pending_letter": _letter_doc(state.pending_letter),
         "pending_forced": state.pending_forced,
         "pending_demo": _demo_doc(state.pending_demo),
+        "progress": asdict(state.progress),
+        "badges": [{"id": badge.id, "at": badge.at} for badge in state.badges],
     }
 
 
@@ -155,6 +160,8 @@ def _from_doc(doc: dict[str, Any]) -> CareerState:
         pending_letter=_letter_from(doc.get("pending_letter")),
         pending_forced=bool(doc.get("pending_forced")),
         pending_demo=_demo_from(doc.get("pending_demo")),
+        progress=_progress_from(doc.get("progress")),
+        badges=_badges_from(doc.get("badges")),
     )
 
 
@@ -199,3 +206,38 @@ def _letter_from(raw: Any) -> CareerLetter | None:
         old_grade=str(raw.get("old_grade") or "intern"),
         new_grade=str(raw.get("new_grade") or "intern"),
     )
+
+
+def _progress_from(raw: Any) -> CareerProgress:
+    if not isinstance(raw, dict):
+        return CareerProgress()
+    known = {field for field in CareerProgress.__slots__}
+    values: dict[str, int] = {}
+    for key, value in raw.items():
+        if str(key) not in known:
+            continue
+        try:
+            values[str(key)] = max(int(value), 0)
+        except (TypeError, ValueError):
+            continue
+    return CareerProgress(**values)
+
+
+def _badges_from(raw: Any) -> tuple[CareerBadge, ...]:
+    if not isinstance(raw, list):
+        return ()
+    badges: list[CareerBadge] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        badge_id = str(item.get("id") or "").strip()
+        if badge_id not in BADGE_BY_ID or badge_id in seen:
+            continue
+        try:
+            at = _as_dt(item.get("at"))
+        except (TypeError, ValueError):
+            continue
+        seen.add(badge_id)
+        badges.append(CareerBadge(id=badge_id, at=at))
+    return tuple(badges)

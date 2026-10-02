@@ -16,6 +16,8 @@ from agent_service.app.infrastructure.student_profile import MongoStudentProfile
 
 
 class _Collection:
+    """Минимальная замена motor-коллекции: find_one + update_one(upsert)."""
+
     def __init__(self) -> None:
         self.docs: dict[str, dict] = {}
         self.finds = 0

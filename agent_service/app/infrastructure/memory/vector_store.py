@@ -1,7 +1,7 @@
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Protocol, Sequence
+from typing import Any, Mapping, Optional, Protocol, Sequence
 
 from agent_service.app.application.observability.metrics_recorder import MetricsRecorder
 
@@ -26,13 +26,26 @@ def _make_deterministic_id(*parts: str, length: int = 20) -> str:
     return f"doc_{digest}"
 
 
-def chroma_where(types: set[str] | None) -> dict[str, Any] | None:
-    if not types:
+def chroma_where(
+        types: set[str] | None,
+        scope: Mapping[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    clauses: list[dict[str, Any]] = []
+    if types:
+        values = sorted(str(item) for item in types)
+        if len(values) == 1:
+            clauses.append({"type": values[0]})
+        else:
+            clauses.append({"$or": [{"type": value} for value in values]})
+    for key, value in sorted((scope or {}).items()):
+        text = str(value or "").strip()
+        if text:
+            clauses.append({str(key): text})
+    if not clauses:
         return None
-    values = sorted(str(item) for item in types)
-    if len(values) == 1:
-        return {"type": values[0]}
-    return {"$or": [{"type": value} for value in values]}
+    if len(clauses) == 1:
+        return clauses[0]
+    return {"$and": clauses}
 
 
 def sanitize_metadata(metadata: dict[str, Any] | None) -> dict[str, str | int | float | bool]:
@@ -132,6 +145,22 @@ class VectorStore:
         else:
             self._collection.add(**payload)
         return list(ids)
+
+    async def update_metadata(
+            self,
+            ids: Sequence[str],
+            metadatas: Sequence[dict[str, Any]],
+    ) -> int:
+        if not ids or len(ids) != len(metadatas):
+            return 0
+        update = getattr(self._collection, "update", None)
+        if update is None:
+            return 0
+        update(
+            ids=[str(item) for item in ids],
+            metadatas=[sanitize_metadata(item) for item in metadatas],
+        )
+        return len(ids)
 
     async def similarity_search(
             self,

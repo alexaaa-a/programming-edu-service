@@ -4,6 +4,7 @@ from dishka.integrations.fastapi import FromDishka, DishkaRoute
 from task_service.app.application.interfaces.services.token_service import (
     TokenServiceInterface,
 )
+from task_service.app.application.quests import badge_payload
 from task_service.app.application.use_case.tasks.get_board import GetBoardUseCase
 from task_service.app.application.use_case.tasks.submit_peer_review import (
     SubmitPeerReviewUseCase,
@@ -106,7 +107,11 @@ async def update_task_status(
             detail=result.message or "Не удалось обновить статус",
         )
 
-    return {"status": "updated", "close_quality": result.close_quality}
+    return {
+        "status": "updated",
+        "close_quality": result.close_quality,
+        "unlocked": badge_payload(result.unlocked),
+    }
 
 
 @router.post(
@@ -138,4 +143,9 @@ async def submit_peer_review(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=result.message or "Не удалось закрыть ревью",
         )
-    return {"status": "done", "close_quality": result.close_quality, "emma": result.emma}
+    return {
+        "status": "done",
+        "close_quality": result.close_quality,
+        "emma": result.emma,
+        "unlocked": badge_payload(result.unlocked),
+    }

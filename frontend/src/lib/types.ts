@@ -21,6 +21,37 @@ export interface FridayDemo {
   criterion: string | null;
 }
 
+export interface CareerBadge {
+  id: string;
+  title: string;
+  hint: string;
+  at: string;
+}
+
+export interface CareerQuest {
+  id: string;
+  title: string;
+  hint: string;
+  current: number;
+  target: number;
+  left: number;
+}
+
+export interface CareerProgress {
+  closes_ok: number;
+  closes_weak: number;
+  streak_ok: number;
+  best_streak: number;
+  first_try: number;
+  nines: number;
+  peer_found: number;
+  incidents_done: number;
+  demos_held: number;
+  sprints: number;
+  promotions: number;
+  purchases: number;
+}
+
 export interface Career {
   grade: CareerGrade;
   salary: number;
@@ -40,6 +71,10 @@ export interface Career {
     task_id: number | null;
     used?: boolean;
   }[];
+  progress?: CareerProgress;
+  badges?: CareerBadge[];
+  quests?: CareerQuest[];
+  badge_total?: number;
 }
 
 export interface UserShow {

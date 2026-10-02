@@ -41,11 +41,13 @@ class ChatAgent(BaseAgent):
     ) -> str:
         query = await self._build_query.run(message=message, context=context)
         k_docs = 3
+        scope = self._owner_scope(context)
         allowed_types = set(member.rag_types) | {"chat_episode"}
         knowledge_docs = await self._retrieve_docs.run(
             query=query,
             k=k_docs,
             types=allowed_types,
+            scope=scope,
         )
         semantic_only = set(member.rag_types) - {"chat_episode", "past_review", "student_note"}
         if not knowledge_docs and semantic_only:
@@ -89,7 +91,27 @@ class ChatAgent(BaseAgent):
             briefing=briefing,
             voice=voice,
         )
+        await self._reinforce(knowledge_docs)
         return await self._llm_generate.run(system_prompt=system_prompt, user_prompt=user_prompt)
+
+    async def _reinforce(self, docs: list[RetrievedDocument]) -> None:
+        """Документы, дошедшие до промпта, подтверждают свою пользу."""
+        if not docs or self._memory is None:
+            return
+        try:
+            await self._memory.reinforce(docs)
+        except Exception:
+            return
+
+    def _owner_scope(self, context: Any) -> dict[str, str] | None:
+        if not isinstance(context, dict):
+            return None
+        scope: dict[str, str] = {}
+        for key in ("user_id", "session_id"):
+            value = str(context.get(key) or "").strip()
+            if value:
+                scope[key] = value
+        return scope or None
 
     async def run(
             self,

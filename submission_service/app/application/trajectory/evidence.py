@@ -1,10 +1,11 @@
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Any, Sequence
 
 from submission_service.app.application.dto.submission import SubmissionDTO
 from submission_service.app.application.trajectory.knowledge import Observation, Opportunity
 from submission_service.app.application.trajectory.skills import (
     FALLBACK_SKILL,
+    SKILL_BY_ID,
     classify,
     task_profile,
 )
@@ -17,6 +18,24 @@ CHALLENGE_WEIGHT: dict[str, float] = {"high": 0.8, "medium": 0.5, "low": 0.25}
 class EvidenceConfig:
     criterion_weight: float = 1.0
     score_weight: float = 1.0
+
+
+def criterion_skills(row: Any, text: str) -> list[tuple[str, float]]:
+    shares: list[tuple[str, float]] = []
+    for item in getattr(row, "skills", None) or []:
+        skill_id = str(getattr(item, "skill_id", "") or "").strip()
+        try:
+            share = float(getattr(item, "share", 0.0))
+        except (TypeError, ValueError):
+            continue
+        if skill_id in SKILL_BY_ID and share > 0.0:
+            shares.append((skill_id, share))
+    if not shares:
+        return classify(text)
+    total = sum(share for _, share in shares)
+    if total <= 0.0:
+        return classify(text)
+    return [(skill_id, share / total) for skill_id, share in shares]
 
 
 def normalize_score(raw: int | float) -> float:
@@ -42,7 +61,7 @@ def submission_observations(
         note = " ".join(str(row.note or "").split())
         if not text:
             continue
-        for skill_id, share in classify(f"{text}. {note}"):
+        for skill_id, share in criterion_skills(row, f"{text}. {note}"):
             observations.append(
                 Observation(
                     skill_id=skill_id,

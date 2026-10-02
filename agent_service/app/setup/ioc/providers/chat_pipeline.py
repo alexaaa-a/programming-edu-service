@@ -6,9 +6,11 @@ from agent_service.app.application.agents.chat_agent import ChatAgent
 from agent_service.app.application.graphs import compile_chat_graph
 from agent_service.app.application.interfaces import (
     ChatHistoryRepository,
+    DecisionModelInterface,
     LLMInterface,
     MemoryInterface,
 )
+from agent_service.app.config import Settings
 from agent_service.app.application.observability.metrics_recorder import MetricsRecorder
 from agent_service.app.application.observability.llm_trace import LlmTracer
 from agent_service.app.application.orchestrators.chat_orchestrator import (
@@ -49,6 +51,8 @@ class ChatOrchestratorProvider(Provider):
             logger: logging.Logger,
             tracer: LlmTracer,
             langgraph_checkpointer: StoreBackedCheckpointSaver,
+            decisions: DecisionModelInterface,
+            settings: Settings,
     ) -> ChatOrchestrator:
         return ChatOrchestrator(
             chat_agent=chat_agent,
@@ -56,6 +60,8 @@ class ChatOrchestratorProvider(Provider):
             logger=logger,
             tracer=tracer,
             chat_graph=compile_chat_graph(checkpointer=langgraph_checkpointer),
+            decisions=decisions,
+            min_confidence=settings.jev_settings.min_confidence,
         )
 
 

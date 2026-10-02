@@ -11,6 +11,7 @@ from submission_service.app.application.dto.submission import (
     CriterionResultDTO,
     PathStepResultDTO,
     ReviewDTO,
+    SkillShareDTO,
     SubmissionDTO,
 )
 from submission_service.app.config import Settings
@@ -156,6 +157,7 @@ class SubmissionsDB(SubmissionsDBInterface):
                             text=text,
                             passed=bool(item.get("passed")),
                             note=str(item.get("note") or "").strip(),
+                            skills=_skills_from_doc(item.get("skills")),
                         )
                     )
             raw_challenges = review.get("challenges") or []
@@ -204,3 +206,20 @@ class SubmissionsDB(SubmissionsDBInterface):
 
         d["review"] = review
         return SubmissionDTO(**d)
+
+
+def _skills_from_doc(raw: Any) -> list[SkillShareDTO]:
+    if not isinstance(raw, list):
+        return []
+    shares: list[SkillShareDTO] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        skill_id = str(item.get("skill_id") or "").strip()
+        try:
+            share = float(item.get("share"))
+        except (TypeError, ValueError):
+            continue
+        if skill_id and share > 0.0:
+            shares.append(SkillShareDTO(skill_id=skill_id, share=share))
+    return shares

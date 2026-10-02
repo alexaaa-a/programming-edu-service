@@ -1,7 +1,7 @@
 import logging
 import hashlib
 import json
-from typing import Any
+from typing import Any, Mapping
 
 from agent_service.app.application.dto.rag import RetrievedDocument
 from agent_service.app.application.interfaces import MemoryInterface
@@ -33,10 +33,11 @@ class CachedMemory(MemoryInterface):
             query: str,
             k: int,
             types: set[str] | None = None,
+            scope: Mapping[str, str] | None = None,
     ) -> list[RetrievedDocument]:
         async def _impl() -> list[RetrievedDocument]:
             if self._ttl_sec <= 0:
-                return await self._inner.retrieve(query=query, k=k, types=types)
+                return await self._inner.retrieve(query=query, k=k, types=types, scope=scope)
 
             generation = "0"
             try:
@@ -47,6 +48,8 @@ class CachedMemory(MemoryInterface):
                 "q": query,
                 "k": int(k),
                 "types": sorted(map(str, types)) if types else None,
+                "scope": {str(key): str(value) for key, value in sorted((scope or {}).items())}
+                or None,
                 "v": self._cache_version,
                 "g": generation,
             }
@@ -75,7 +78,7 @@ class CachedMemory(MemoryInterface):
                     int(k),
                     ",".join(sorted(types)) if types else None,
                 )
-            value = await self._inner.retrieve(query=query, k=k, types=types)
+            value = await self._inner.retrieve(query=query, k=k, types=types, scope=scope)
             await self._cache.set(key, value, ttl_sec=self._ttl_sec)
             return value
 
@@ -128,3 +131,9 @@ class CachedMemory(MemoryInterface):
         if rollback is None:
             return
         await rollback(session_id=session_id, role=role, content=content)
+
+    async def reinforce(self, documents: list[RetrievedDocument]) -> int:
+        reinforce = getattr(self._inner, "reinforce", None)
+        if reinforce is None:
+            return 0
+        return await reinforce(documents)

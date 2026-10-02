@@ -1,13 +1,15 @@
 import datetime
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
+from task_service.app.application.career import new_intern
 from task_service.app.application.interfaces.career_llm import CareerLlmInterface
 from task_service.app.application.interfaces.db.career_db import CareerDBInterface
 from task_service.app.application.interfaces.db.task_db import TaskDBInterface
 from task_service.app.application.interfaces.kafka import TaskEventProducerInterface
 from task_service.app.application.night_incident import open_night_incident
 from task_service.app.application.peer_review import is_peer_review_task, judge_peer_note
+from task_service.app.application.quests import apply_close, apply_peer_review, award
 
 _logger = logging.getLogger("task_service.submit_peer_review")
 
@@ -21,6 +23,7 @@ class SubmitPeerReviewResult:
     message: str | None = None
     close_quality: str | None = None
     emma: str | None = None
+    unlocked: tuple[str, ...] = ()
 
 
 class SubmitPeerReviewUseCase:
@@ -107,4 +110,34 @@ class SubmitPeerReviewUseCase:
                 quality=quality,
                 career_llm=self.career_llm,
             )
-        return SubmitPeerReviewResult(ok=True, close_quality=quality, emma=line)
+        unlocked = await self._record_review(user_id, quality=quality, found=found)
+        return SubmitPeerReviewResult(
+            ok=True,
+            close_quality=quality,
+            emma=line,
+            unlocked=unlocked,
+        )
+
+    async def _record_review(
+            self,
+            user_id: int,
+            quality: str,
+            found: bool,
+    ) -> tuple[str, ...]:
+        """Ревью стажёра идёт в те же счётчики, что и обычное закрытие."""
+        if self.career_db is None:
+            return ()
+        try:
+            career = await self.career_db.get(user_id) or new_intern(user_id)
+            progress = apply_peer_review(
+                apply_close(career.progress, quality=quality),
+                found=found,
+            )
+            badges, unlocked = award(progress, career.badges)
+            saved = await self.career_db.save(
+                replace(career, progress=progress, badges=badges)
+            )
+            return unlocked if saved else ()
+        except Exception:
+            _logger.exception("peer review progress failed user_id=%s", user_id)
+            return ()

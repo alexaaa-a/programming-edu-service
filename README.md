@@ -14,9 +14,9 @@ A student picks a track (backend, frontend or fullstack) and a level. They get a
 
 Between tasks, a knowledge model built from the review outcomes decides what happens next: fix one specific criterion, ask one specific teammate, repeat a skill that is fading, or take a particular task from the board. At the end of a sprint the student gets a performance-review letter with a grade and salary change. The whole thing is meant to feel like the first months of a job.
 
-It is about 27,000 lines of Python (five services) and 6,400 lines of TypeScript, with 243 unit tests.
+It is about 30,000 lines of Python across five services and 6,900 lines of TypeScript, with 313 unit tests.
 
-## Four things worth a look
+## Five things worth a look
 
 1. **A reviewer that cannot grade by feel.** The final score is computed. The LLM agents fill in a rubric, and the number comes from the rubric pass rate, capped by hard evidence: broken syntax, failing tests, objections from a second reviewer, skipped steps in the process. An agent cannot talk its way past a cap. See [the review pipeline](#the-review-pipeline).
 
@@ -24,7 +24,9 @@ It is about 27,000 lines of Python (five services) and 6,400 lines of TypeScript
 
 3. **The agents are audited too.** Every review and every chat turn records which steps ran. A process check lowers the score if required steps were skipped, and flags a mentor reply that pastes a complete solution.
 
-4. **The domain carries the motivation.** Grades, salary, a bonus that can be spent on extra help, a Friday demo, a night incident, and a peer-review task where the student finds a planted bug in code written by an LLM. What the student is shown depends on their grade. See [the career layer](#the-career-layer).
+4. **Decisions are typed, not generated.** The small choices inside the product (who should answer, is this worth remembering, which skill does this criterion test, did the student find the planted bug) go to a decision model that returns probabilities over options I define, not text. It cannot invent an option, and every call has a deterministic fallback behind a confidence gate. See [typed decisions](#typed-decisions).
+
+5. **The domain carries the motivation.** Grades, salary, a bonus that can be spent on extra help, a Friday demo, a night incident, a peer-review task where the student finds a planted bug in code written by an LLM, and badges that are awarded for closed work rather than time spent. What the student is shown depends on their grade. See [the career layer](#the-career-layer).
 
 ## Screens
 
@@ -35,6 +37,10 @@ The report after a submission. The score is on the left; the trajectory block sa
 The team chat. The briefing at the top comes from the trajectory, so the teammates start from the same picture of the student.
 
 ![Team chat](docs/img/team-chat.png)
+
+The short feedback loop: the grade ladder, counters, the next goals and the badge shelf. Every number here is server-side and comes from closed work.
+
+![Goals and badges](docs/img/quests.png)
 
 ## Architecture
 
@@ -52,6 +58,8 @@ flowchart TB
     SS <--> K
     AS <--> K
     AS --> LLM["OpenAI-compatible<br/>LLM API"]
+    AS -.-> JEV["Decision model<br/><i>optional</i>"]
+    SS -.-> JEV
 ```
 
 | Service | Owns | Notes |
@@ -155,9 +163,48 @@ The adversarial reviewer has deterministic rules of its own. They replace its ve
 
 **Code execution.** The sandbox is a subprocess in a temporary directory with CPU, memory, process-count and file-size limits, a scrubbed environment and a timeout. It is not container isolation. Running student tests is off by default and cannot be switched on in a production environment. Static analysis and compilation always run, for Python and JavaScript. A missing Node.js makes the JavaScript check fail rather than pass.
 
+## Typed decisions
+
+A lot of what this product does is not writing text. It is choosing: which teammate should answer, whether a chat episode is worth keeping, which skill a criterion tests, whether a review note names the real bug. Running those through a chat model costs seconds and tokens, and the answer has to be parsed back out of prose, where a model can return a teammate who does not exist.
+
+Since September 2026 there is a model built for exactly this shape of question. [Jev](https://openrouter.ai/docs/guides/community/jev) from TypeSafe AI is a *System One* model. It does not generate tokens; it returns probabilities over options the developer defines. Three primitives cover everything here: `noul` (probability that a statement holds), `choice` (one option out of an enumeration) and `score` (a position on an ordered scale of 2 to 10 described levels). A request carries a state and a map of typed questions, and several questions are answered in one call.
+
+```mermaid
+flowchart LR
+    EV["Event in the product<br/>chat turn, memory write,<br/>review arriving, peer note"] --> Q["Typed questions<br/>noul · choice · score"]
+    Q --> J["Decision model<br/>probabilities, confidence"]
+    J --> G{"confidence<br/>above the gate?"}
+    G -->|yes| U["Use the answer"]
+    G -->|"no, or model<br/>unavailable"| D["Deterministic rule<br/>keywords, regex,<br/>heuristics, LLM"]
+```
+
+Where it is used, and what happens without it:
+
+| Decision | Question | Fallback |
+|---|---|---|
+| Who answers in the chat | `choice` over the four teammates, plus a `noul` for "this needs several roles" | `@mention`, then keyword routing, then the LLM router |
+| How to answer | `noul` "the student is asking for the finished code", `score` of how stuck they are | No extra instruction in the prompt |
+| Keep a chat episode in memory | `noul` "will this still be useful in a week" | The record is kept |
+| Order of retrieved documents | `score` of relevance per candidate, in one call | Vector order after fusion |
+| Which skill a criterion tests | `choice` over the 14 skills, per criterion, one call per review | The keyword classifier |
+| Peer review and Friday demo verdicts | `noul` "the note names this bug", "the answer is about this criterion" | The existing LLM-with-quoted-evidence check |
+
+Four properties made this worth wiring in:
+
+- **The answer is inside the enumeration by construction.** The chat router cannot return a fifth teammate, and the skill tagger cannot invent a fifteenth skill. That removes a whole class of parsing and validation code.
+- **One call, several decisions.** A chat turn asks four questions at once: who speaks, is this a huddle, is the student asking for the answer, how stuck are they. Routing and teaching tone come out of the same request.
+- **Probabilities are usable numbers.** The skill tagger's top two probabilities become the weights of the observation that reaches the knowledge model, so an ambiguous criterion contributes to two skills instead of being forced into one.
+- **A prompt injection cannot move a verdict.** The peer-review note is data in the state, not an instruction: the answer can only be a probability of yes.
+
+Every call site keeps its old path. The client returns an empty answer instead of raising, on a timeout, a 4xx, a malformed body or an answer below the confidence gate, and after three failures in a row it stops calling for a minute so a bad key does not add latency to every request. With `AGENT_SERVICE_JEV_ENABLED=false` and `SUBMISSION_SERVICE_JEV_ENABLED=false`, which is the default, the product behaves exactly as it did before.
+
+The code: [`decisions/questions.py`](agent_service/app/application/decisions/questions.py) is the typed-question layer, [`decisions/policies.py`](agent_service/app/application/decisions/policies.py) holds the question sets and the thresholds, and [`infrastructure/decisions/jev_client.py`](agent_service/app/infrastructure/decisions/jev_client.py) is the client.
+
+**This is engineering, not a result.** I have no accuracy numbers for the decision model against human labels, so nothing in the evaluation section depends on it being switched on.
+
 ## The learning trajectory
 
-An earlier version of this was a hand-weighted formula over four numbers. It could say that a student was doing poorly, but not at what. I replaced it with a model of individual skills.
+An earlier version of this was a hand-weighted formula over four numbers. It could say that a student was doing poorly, but not at what. I replaced it with a model of individual skills. [docs/trajectory.md](docs/trajectory.md) (in Russian) has the derivations, the references and the full tables; this is the summary.
 
 ```mermaid
 flowchart LR
@@ -170,7 +217,9 @@ flowchart LR
     P --> Q["Whom to ask,<br/>and a ready question"]
 ```
 
-**Skills and evidence.** There are 14 skills (edge cases, validation, error handling, testing, algorithms, data structures, API design, storage, concurrency, security, and so on). A deterministic classifier assigns each criterion text to one or two of them. Every criterion in a review is one pass/fail observation. Objections from the adversarial reviewer count as weaker negative evidence, weighted by severity. The final score is used only when a review has no criteria.
+**Skills and evidence.** There are 14 skills (edge cases, validation, error handling, testing, algorithms, data structures, API design, storage, concurrency, security, and so on). Every criterion in a review is one pass/fail observation against one or two of them. Objections from the adversarial reviewer count as weaker negative evidence, weighted by severity. The final score is used only when a review has no criteria.
+
+The mapping from a criterion to skills is the weakest link in this chain, so it is computed once, when the review arrives, and stored next to the submission. A keyword classifier over word stems does it by default. When the decision model is enabled, a `choice` question per criterion does it instead, and the two top probabilities become the weights of the observation, so an ambiguous criterion splits 0.6 / 0.4 between two skills instead of landing entirely in one. Criteria the model is not confident about fall back to keywords, so a trajectory stays reproducible either way.
 
 **The model.** Each skill has a probability `P` that the student knows it. One submission updates it in three steps:
 
@@ -204,11 +253,13 @@ It is clearly better than the formula it replaced and matches a strong per-skill
 
 ```mermaid
 flowchart LR
-    Q["Student message<br/>plus trajectory briefing"] --> R{"route"}
-    R -->|"@mention, keywords,<br/>trajectory says 'ask'"| D["deterministic route"]
-    R -->|"nothing matched"| L["LLM router, JSON output"]
-    D --> MODE{"mode"}
-    L --> MODE
+    Q["Student message<br/>plus trajectory briefing"] --> M{"named<br/>a teammate?"}
+    M -->|yes| D["that teammate"]
+    M -->|no| J["decision model<br/>speaker · huddle ·<br/>asking for the answer ·<br/>how stuck"]
+    J -->|confident| D
+    J -->|"not confident<br/>or unavailable"| K["keywords, trajectory,<br/>then the LLM router"]
+    K --> MODE{"mode"}
+    D --> MODE
     MODE -->|solo| SO["one teammate answers"]
     MODE -->|huddle| H["advisors write notes,<br/>the lead teammate answers"]
     SO --> PE["process_eval"]
@@ -216,7 +267,9 @@ flowchart LR
     PE --> FIN["finalize<br/>transcript, episode memory"]
 ```
 
-Sara (product), Mike (analytics), Emma (QA) and John (tech lead) each have a persona and a focus area. Emma retrieves from the bug-pattern notes, the others from the best-practice notes. A message that touches two areas becomes a huddle led by John. When the trajectory says the student should talk something through, the reply comes from the teammate who owns the weak skill (unless the student names someone else), and the input box is prefilled with a ready question. The router prefers cheap deterministic rules, and the LLM is the fallback.
+Sara (product), Mike (analytics), Emma (QA) and John (tech lead) each have a persona and a focus area. Emma retrieves from the bug-pattern notes, the others from the best-practice notes. A message that touches two areas becomes a huddle led by John. When the trajectory says the student should talk something through, the reply comes from the teammate who owns the weak skill, and the input box is prefilled with a ready question.
+
+Naming a teammate always wins. Otherwise one decision call answers four questions about the turn, and two of them never reach the router: whether the student is asking for the finished code, and how stuck they are. Those become instructions to the teammate who answers: hold back the patch and name the place in their code, or slow down to one step and start from what already works. Asking for help and asking for the answer are different requests, and the second one deserves a different reply, not a refusal.
 
 ## The career layer
 
@@ -233,7 +286,9 @@ What is shown by grade is decided in the client (`frontend/src/lib/career-rights
 - **Sprint end.** When the tasks are done, the student gives a Friday demo (a two to four sentence pitch and one question). Then a letter arrives from the tech lead. It is a promotion (next grade, plus a bonus of 20% of the new salary, halved if the pitch was weak), no raise (most tasks were closed weakly), or a freeze (the trajectory is thin). A thin trajectory freezes the raise; it does not block the next sprint. If the trajectory service cannot be reached, completion is held.
 - **Bonus.** It can be spent during the next sprint on an extra review round, a one-turn session with Emma, or criteria before submitting. Whatever is left is replaced by the bonus in the next letter.
 - **Night incident.** An optional task that arrives as a message from Emma: production is returning 500. A full pass adds a one-off bonus to the letter.
-- **Peer review.** From Junior+, the student reads a snippet generated by the LLM with one planted bug and writes down what is wrong. The generator is checked so the bug text does not leak into the code, and a fixed snippet is used if generation fails.
+- **Peer review.** From Junior+, the student reads a snippet generated by the LLM with one planted bug and writes down what is wrong. The generator is checked so the bug text does not leak into the code, and a fixed snippet is used if generation fails. The verdict is a typed decision; the LLM only writes Emma's line once the verdict is in.
+
+**The short loop.** A grade arrives once a sprint, which is too rare to tell a student they are getting somewhere. Eleven badges fill the gap: first pass, closed without a second attempt, a 9 or a 10, three and five passes in a row, the planted bug found, the night incident closed, a pitch that held, a promotion, a bonus spent on help, three sprints. Each one is a counter reaching a target, so the same pair produces the goals shown next to the shelf: what is left, and how far along it is. Counters move only on closed work (a pass on the board, a sprint accepted), never on time spent in the editor or pages opened. The award is computed from stored state rather than from an event log, so a badge cannot be won twice and the whole shelf can be recomputed. Awards come back in the response of the request that earned them, and the client shows the card on whatever screen the student is on.
 
 ## Memory
 
@@ -246,11 +301,18 @@ What is shown by grade is decided in the client (`frontend/src/lib/career-rights
 | Review and chat run state | Redis (LangGraph checkpoints, with a TTL) | By thread id |
 | Retrieval cache | Redis | By query |
 
-The student profile used to live in the vector store. It is a single short record per person, so similarity search added nothing: the record was either found or silently missing when its embedding did not rank. Now it is fetched by key. Writes to memory follow the same rules everywhere: text is compressed, empty or filler text and pasted solutions are rejected, and personal records need a user id.
+The student profile used to live in the vector store. It is a single short record per person, so similarity search added nothing: the record was either found or silently missing when its embedding did not rank. Now it is fetched by key.
+
+Four rules keep the vector layers from turning into a landfill:
+
+- **Ownership is a filter in the store, not a filter after the search.** Private types carry a `user_id`, and it goes into the Chroma `where` clause for the episodic layer. Before, another student's documents could take up half of the top-k and be dropped afterwards, which cost recall for the student who was actually asking. Shared knowledge has no owner, so the filter is only applied when every requested type is private.
+- **A repeat merges instead of piling up.** Before writing, a near-duplicate of the same type and owner is looked up by cosine distance. If one is there, the new text replaces it under the same id, the first-seen date and the use counter survive, and the timestamp is refreshed, so a confirmed observation becomes fresh again. That is the forgetting curve of the trajectory model pointed the other way.
+- **Use is a signal.** Documents that actually reach a prompt get a use counter. Ranking weight is freshness plus a bounded bonus that grows as `uses / (uses + 3)`, so the third use adds half of what the bonus can ever give and the hundredth adds almost nothing. Memory decays with time and strengthens with use.
+- **Writes are gated.** Text is compressed, empty or filler text and pasted solutions are rejected, personal records need a user id, and when the decision model is on, a chat episode has to pass "will this still be useful in a week". Retrieved documents are reranked by a relevance score per candidate; anything the model confidently calls off-topic is dropped before the prompt is built. Both gates fail open.
 
 ## Testing and evaluation
 
-- **243 unit tests** (`submission_service` 47, `task_service` 90, `agent_service` 106). They cover the scorecard and its caps, the close gate, the knowledge model, the planner, memory rules, checkpoint round trips, routing and the career rules.
+- **313 unit tests** (`submission_service` 60, `task_service` 106, `agent_service` 147). They cover the scorecard and its caps, the close gate, the knowledge model, the planner, memory rules (ownership filters, merging, reinforcement, both gates), checkpoint round trips, routing, the typed-question layer and its client, the badge rules, and the career rules. The decision model is tested against recorded request and response shapes, including a timeout, a 429, a malformed body, an option outside the enumeration, and the cooldown after repeated failures.
 - **Offline eval harness** in [`agent_service/evals`](agent_service/evals). It runs the deterministic part of the pipeline (tools, rubric, caps) with no LLM and checks the expected caps, and can run a small set of LLM-backed review and chat cases against a running stack. The dataset is small: 5 review cases and 5 chat cases. It is a regression net.
 - **Simulation** of the trajectory model, as above: `python -m submission_service.app.application.trajectory.simulation`.
 - **Load scenario** for the gateway in [`tests/locust`](tests/locust). I have no results to publish.
@@ -273,6 +335,8 @@ cp docs/.env.example .env      # fill in hosts, secrets and the LLM settings
 docker compose up --build
 ```
 
+The decision model is optional. To switch it on, set `AGENT_SERVICE_JEV_ENABLED` and `SUBMISSION_SERVICE_JEV_ENABLED` to `true` and put an OpenRouter key in `*_JEV_API_KEY`; without them every decision takes its deterministic path.
+
 | URL | What |
 |---|---|
 | http://localhost:3000 | Client |
@@ -293,7 +357,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r submission_service/requirements.txt -r task_service/requirements.txt \
             -r agent_service/requirements.txt pytest
 
-set -a; source <(sed -E 's/=$/=1/' docs/.env.example); TASK_SERVICE_REDIS_PASSWORD=1; set +a
+set -a; source <(sed -E 's/=$/=1/' docs/.env.example); set +a
 pytest submission_service/tests task_service/tests agent_service/tests
 ```
 
@@ -302,7 +366,8 @@ Python 3.12 is what the images use.
 ## Limitations
 
 - **No study with real students.** I do not know whether this improves learning. The trajectory results come from simulation, and their assumptions are the simulator's.
-- **The skill map is rule-based.** Criteria are assigned to skills by keyword patterns in Russian and English. Nobody has validated them against human labels, and a wrong assignment feeds straight into the knowledge model.
+- **The skill map is unvalidated.** Criteria are assigned to skills by keyword patterns over word stems, or by the decision model when it is enabled. Neither has been checked against human labels, and a wrong assignment feeds straight into the knowledge model.
+- **The decision model is unmeasured.** Switching it on changes routing, what is remembered and how criteria are tagged. I know it fails safely, because every call site keeps its old path behind a confidence gate; I do not know how often it is right. Measuring it needs the same labelled sample as the skill classifier.
 - **The parameters are derived, not fitted.** With real logs they should be estimated (EM, or a grid search on likelihood), and the seven constraints are a good sanity check for the result.
 - **LLM grades vary.** The caps make scores more predictable, not more valid. I have not measured agreement between the pipeline and human graders.
 - **The sandbox is process-level.** It is fine for a prototype and would need containers before untrusted use.
@@ -323,17 +388,21 @@ Things I would do next, in order: collect real submission logs from a small coho
 | [`trajectory/planner.py`](submission_service/app/application/trajectory/planner.py) | Focus skill, plan, and choice of the next task |
 | [`trajectory/calibration.py`](submission_service/app/application/trajectory/calibration.py), [`simulation.py`](submission_service/app/application/trajectory/simulation.py) | Where the parameters and the numbers above come from |
 | [`career.py`](task_service/app/application/career.py) | Grades, letters, bonus and their rules |
+| [`quests.py`](task_service/app/application/quests.py) | Counters, badges and the goals built from them |
+| [`decisions/questions.py`](agent_service/app/application/decisions/questions.py), [`policies.py`](agent_service/app/application/decisions/policies.py) | Typed questions, and every question the product asks |
+| [`memory/layered_memory.py`](agent_service/app/infrastructure/memory/layered_memory.py) | Ownership filters, merging, reinforcement, rerank |
 
 ## Repository map
 
 ```
 api_gateway/          reverse proxy, rate limiting
 user_service/         accounts and roles
-task_service/         projects, sprints, board, career rules
+task_service/         projects, sprints, board, career rules, badges
 submission_service/   submissions, review loop, learning trajectory
   app/application/trajectory/   skills, evidence, knowledge model, planner, calibration, simulation
 agent_service/        review graph, team chat, memory, evals
   app/application/review/       rubric, scorecard, adversarial check, process check
+  app/application/decisions/    typed questions for the decision model
   app/application/graphs/       LangGraph definitions
   evals/                        offline evaluation
 frontend/             React client

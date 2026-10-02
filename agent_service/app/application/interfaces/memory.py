@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Any, Protocol
+from typing import Any, Mapping, Protocol
 
 from agent_service.app.application.dto.rag import RetrievedDocument
 
@@ -11,6 +11,7 @@ class MemoryInterface(Protocol):
             query: str,
             k: int,
             types: set[str] | None = None,
+            scope: Mapping[str, str] | None = None,
     ) -> list[RetrievedDocument]:
         raise NotImplementedError
 
@@ -39,3 +40,6 @@ class MemoryInterface(Protocol):
             content: str,
     ) -> None:
         return None
+
+    async def reinforce(self, documents: list[RetrievedDocument]) -> int:
+        return 0

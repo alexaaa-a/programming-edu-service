@@ -17,6 +17,7 @@ from task_service.app.application.use_case.sprint.get_current_sprint import (
 )
 from task_service.app.infrastructure.http.admin_role import can_force_sprint
 from task_service.app.presentation.api.deps import get_current_user_id_or_401
+from task_service.app.application.quests import badge_payload
 from task_service.app.presentation.api.v1.career.router import _letter_out
 from task_service.app.presentation.api.v1.sprint.schema import Sprint
 
@@ -145,6 +146,8 @@ async def complete_sprint(
 
 def _sprint_done(complete) -> dict:
     body = {"status": complete.status, "forced": complete.forced}
+    if complete.unlocked:
+        body["unlocked"] = badge_payload(complete.unlocked)
     if complete.letter is not None:
         body["letter"] = _letter_out(complete.letter).model_dump(mode="json")
     if complete.demo is not None:

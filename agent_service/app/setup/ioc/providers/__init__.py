@@ -1,3 +1,4 @@
+from .decisions import DecisionProviders
 from .kafka import KafkaProviders
 from .logging import LoggingProviders
 from .memory import MemoryProviders
@@ -17,6 +18,7 @@ all_providers = [
     *MemoryProviders,
     *HttpProviders,
     *ObservabilityProviders,
+    *DecisionProviders,
     *RedisProviders,
     *LangGraphProviders,
     *EvalPipelineProviders,
