@@ -398,6 +398,7 @@ class CompleteSprintUseCase:
                     status="todo",
                     created_at=now,
                     completed_at=None,
+                    hidden_tests=str(getattr(template_task, "tests", "") or ""),
                 )
                 task_created = await self.task_db.create_task(new_task)
                 if not task_created:
@@ -428,12 +429,15 @@ class CompleteSprintUseCase:
                     raise RuntimeError("failed to create peer review task")
                 created_tasks.append(review_task)
 
-            for new_task in created_tasks:
+            for order, new_task in enumerate(created_tasks):
                 await self.task_event_producer.produce_task_created(
                     task_id=new_task.task_id,
                     user_id=user_id,
                     status=new_task.status,
                     task_description=new_task.description,
+                    title=new_task.title,
+                    order=order,
+                    tests=new_task.hidden_tests or None,
                 )
                 published_tasks.append((new_task.task_id, new_task.description))
 

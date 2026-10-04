@@ -22,6 +22,7 @@ class CriterionCheck:
     passed: bool
     note: str = ""
     required: bool = True
+    line: int | None = None
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -158,11 +159,13 @@ async def grade_rubric(
     system = (
         "Ты проверяешь код студента по критериям приёмки.\n"
         "Верни ТОЛЬКО JSON:\n"
-        '{"checks":[{"id":"c1","passed":true,"note":"кратко"}]}\n'
+        '{"checks":[{"id":"c1","passed":true,"note":"кратко","line":12}]}\n'
         "Правила:\n"
         "- для каждого критерия ровно одна проверка;\n"
         "- passed=true только если требование явно выполнено в коде;\n"
         "- note на русском <= 120 символов;\n"
+        "- line — номер строки кода, к которой относится замечание, с единицы;\n"
+        "- line ставь только когда уверен в месте, иначе null;\n"
         "- не выдумывай поведение вне кода и фактов инструментов;\n"
         "- если синтаксис/компиляция сломаны — критерии про реализацию скорее false.\n"
     )
@@ -285,6 +288,7 @@ def _parse_checks_json(raw: str, rubric: AcceptanceRubric) -> list[CriterionChec
             )
             continue
         note = _clip(str(item.get("note") or "").strip(), 140)
+        line = _as_line(item.get("line"))
         result.append(
             CriterionCheck(
                 id=criterion.id,
@@ -292,9 +296,20 @@ def _parse_checks_json(raw: str, rubric: AcceptanceRubric) -> list[CriterionChec
                 passed=bool(item.get("passed")),
                 note=note,
                 required=criterion.required,
+                line=line,
             )
         )
     return result
+
+
+def _as_line(raw: object) -> int | None:
+    if isinstance(raw, bool) or raw is None:
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if 1 <= value <= 10_000 else None
 
 
 def _extract_json_object(raw: str) -> dict | None:

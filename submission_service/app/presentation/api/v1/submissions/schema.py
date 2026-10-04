@@ -7,17 +7,27 @@ class CriterionResult(BaseModel):
     text: str
     passed: bool
     note: str = ""
+    line: int | None = None
 
 
 class ChallengeResult(BaseModel):
     text: str
     severity: str = "medium"
+    line: int | None = None
 
 
 class PathStepResult(BaseModel):
     kind: str
     name: str
     status: str
+    detail: str = ""
+
+
+class TaskTests(BaseModel):
+    status: str
+    total: int = 0
+    passed: int = 0
+    failed_names: list[str] = Field(default_factory=list)
     detail: str = ""
 
 
@@ -28,6 +38,7 @@ class Review(BaseModel):
     criteria: list[CriterionResult] = Field(default_factory=list)
     challenges: list[ChallengeResult] = Field(default_factory=list)
     agent_path: list[PathStepResult] = Field(default_factory=list)
+    tests: TaskTests | None = None
 
 
 class Submission(BaseModel):
@@ -94,6 +105,14 @@ class TrajectoryRecommendation(BaseModel):
     ask: str | None = None
 
 
+class TrajectoryNudge(BaseModel):
+    kind: str
+    task_id: int
+    hours_since: int = 0
+    score: int | None = None
+    detail: str = ""
+
+
 class UserTrajectory(BaseModel):
     mastery: float
     difficulty: float
@@ -115,4 +134,19 @@ class UserTrajectory(BaseModel):
     focus: TrajectoryFocus | None = None
     recommendations: list[TrajectoryRecommendation] = Field(default_factory=list)
     next_task_id: int | None = None
+    nudge: TrajectoryNudge | None = None
     model: str = ""
+
+
+class DrillOffer(BaseModel):
+    drill_id: str
+    title: str
+    prompt: str
+    starter: str
+    minutes: int
+    skill_id: str
+    skill_title: str
+    kind: str
+    reason: str
+    days_since: int = 0
+    retention: float = 1.0

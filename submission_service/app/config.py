@@ -51,9 +51,15 @@ class ReviewLoopSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SUBMISSION_SERVICE_REVIEW_")
 
 
+class InternalSettings(BaseSettings):
+    token: str = ""
+
+    model_config = SettingsConfigDict(env_prefix="SUBMISSION_SERVICE_INTERNAL_")
+
+
 class JevSettings(BaseSettings):
     enabled: bool = True
-    api_key: str
+    api_key: str = ""
     base_url: str = "https://openrouter.ai/api"
     model: str = "typesafe/jev-1.13"
     timeout_sec: float = 4.0
@@ -74,4 +80,5 @@ class Settings(BaseSettings):
     logging_settings: LoggingSettings = LoggingSettings()
     kafka_settings: KafkaSettings = KafkaSettings()  # type: ignore[call-arg]
     review_loop_settings: ReviewLoopSettings = ReviewLoopSettings()
-    jev_settings: JevSettings = JevSettings()  # type: ignore[call-arg]
+    jev_settings: JevSettings = JevSettings()
+    internal_settings: InternalSettings = InternalSettings()

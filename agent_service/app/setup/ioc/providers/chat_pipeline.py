@@ -1,5 +1,6 @@
 import logging
 
+import redis.asyncio as redis
 from dishka import Provider, Scope, provide
 
 from agent_service.app.application.agents.chat_agent import ChatAgent
@@ -22,6 +23,8 @@ from agent_service.app.application.interfaces.trajectory_gateway import (
 )
 from agent_service.app.application.use_cases import ChatWithTeamUseCase
 from agent_service.app.application.use_cases.get_chat_history import GetChatHistoryUseCase
+from agent_service.app.application.use_cases.proactive_nudge import ProactiveNudgeUseCase
+from agent_service.app.infrastructure.run_guard import RedisNudgeMemory
 from agent_service.app.infrastructure.checkpoints.langgraph_saver import StoreBackedCheckpointSaver
 from agent_service.app.infrastructure.observability.agent_wrappers import (
     ChatAgentWithObservability,
@@ -82,6 +85,29 @@ class ChatWithTeamUseCaseProvider(Provider):
         )
 
 
+class ProactiveNudgeProvider(Provider):
+    @provide(scope=Scope.REQUEST)
+    def proactive_nudge_use_case(
+            self,
+            trajectory_gateway: TrajectoryGatewayInterface,
+            memory: MemoryInterface,
+            llm: LLMInterface,
+            decisions: DecisionModelInterface,
+            redis_client: redis.Redis,
+            settings: Settings,
+            logger: logging.Logger,
+    ) -> ProactiveNudgeUseCase:
+        return ProactiveNudgeUseCase(
+            trajectory_gateway=trajectory_gateway,
+            memory=memory,
+            llm=llm,
+            decisions=decisions,
+            guard=RedisNudgeMemory(redis_client, logger=logger),
+            min_confidence=settings.jev_settings.min_confidence,
+            logger=logger,
+        )
+
+
 class GetChatHistoryUseCaseProvider(Provider):
     @provide(scope=Scope.REQUEST)
     def get_chat_history_use_case(
@@ -95,5 +121,6 @@ ChatPipelineProviders = [
     ChatAgentProvider(),
     ChatOrchestratorProvider(),
     ChatWithTeamUseCaseProvider(),
+    ProactiveNudgeProvider(),
     GetChatHistoryUseCaseProvider(),
 ]

@@ -50,6 +50,7 @@ class SubmissionEventProducer:
             task_description: str,
             attempt: int = 1,
             previous_feedback: str | None = None,
+            hidden_tests: str | None = None,
     ) -> None:
         if not self._producer:
             raise RuntimeError("Kafka producer not started")
@@ -62,6 +63,8 @@ class SubmissionEventProducer:
             "attempt": attempt,
             "previous_feedback": previous_feedback,
         }
+        if hidden_tests:
+            payload["hidden_tests"] = hidden_tests
         topic = self._settings.kafka_settings.topic_submission_created
         try:
             await self._producer.send_and_wait(topic, value=payload)

@@ -32,12 +32,19 @@ import {
   formatRub,
   presentTask,
   isNightIncident,
-  taskIsOpen,
+  taskLock,
 } from "@/lib/career-rights";
 import { actionCta, actionTitle } from "@/lib/trajectory";
-import { TrajectoryMeters } from "../components/workspace/TrajectoryMeters";
 import { TrajectoryFocus } from "../components/workspace/TrajectoryFocus";
 import { CareerQuests } from "../components/workspace/CareerQuests";
+import { DrillCard } from "../components/workspace/DrillCard";
+import { TeamMessageCard } from "../components/workspace/TeamMessageCard";
+import {
+  FirstRunGuide,
+  HowItWorksButton,
+  markFirstRunSeen,
+  wasFirstRunSeen,
+} from "../components/workspace/FirstRunGuide";
 import { cn } from "../components/ui/utils";
 
 function pickCurrentTask(board: BoardResponse): TaskResponse | null {
@@ -102,6 +109,7 @@ export default function Dashboard() {
   const [trajectory, setTrajectory] = useState<UserTrajectory | null>(null);
   const [career, setCareer] = useState<Career | null>(null);
   const [needsProject, setNeedsProject] = useState(false);
+  const [showGuide, setShowGuide] = useState(!wasFirstRunSeen());
   const [starting, setStarting] = useState(false);
 
   const load = useCallback(async () => {
@@ -114,8 +122,10 @@ export default function Dashboard() {
         return;
       }
       setMe(profile);
+      let careerState: Career | null = null;
       try {
-        setCareer(await getCareer());
+        careerState = await getCareer();
+        setCareer(careerState);
       } catch {
         setCareer(null);
       }
@@ -144,7 +154,12 @@ export default function Dashboard() {
       setForceArmed(false);
       const focus = pickCurrentTask(b) ?? b.done[b.done.length - 1] ?? null;
       try {
-        setTrajectory(await getMyTrajectory(focus?.task_id));
+        setTrajectory(
+          await getMyTrajectory(
+            focus?.task_id,
+            careerRights(careerState?.grade).pickFirstTask,
+          ),
+        );
       } catch {
         setTrajectory(null);
       }
@@ -322,6 +337,9 @@ export default function Dashboard() {
             <h1 className="mt-2 text-4xl leading-[1.1] sm:text-5xl">
               Привет, {firstName}
             </h1>
+            <div className="mt-3">
+              <HowItWorksButton onClick={() => setShowGuide(true)} />
+            </div>
           </div>
           <div className="flex items-center gap-4">
             {career && (
@@ -440,6 +458,16 @@ export default function Dashboard() {
               {completing ? "Открываем…" : "Принять условия"}
             </PrimaryButton>
           </section>
+        )}
+
+        {!loading && board && showGuide && (
+          <FirstRunGuide
+            className="mb-10"
+            onDismiss={() => {
+              markFirstRunSeen();
+              setShowGuide(false);
+            }}
+          />
         )}
 
         {loading && (
@@ -701,16 +729,27 @@ export default function Dashboard() {
                         />
                       </div>
                     </div>
-                    {trajectory ? (
-                      <TrajectoryMeters trajectory={trajectory} />
-                    ) : (
+                    <div>
+                      <dt className="font-mono text-[11px] text-muted-foreground">
+                        День в спринте
+                      </dt>
+                      <dd className="mt-1 text-lg font-medium">{dayInSprint}</dd>
+                    </div>
+                    {trajectory?.focus ? (
                       <div>
                         <dt className="font-mono text-[11px] text-muted-foreground">
-                          День в спринте
+                          Сейчас разбираем
                         </dt>
-                        <dd className="mt-1 text-lg font-medium">{dayInSprint}</dd>
+                        <dd className="mt-1">
+                          <a
+                            href="#focus"
+                            className="text-sm leading-snug text-foreground underline decoration-border underline-offset-4 hover:decoration-primary"
+                          >
+                            {trajectory.focus.title}
+                          </a>
+                        </dd>
                       </div>
-                    )}
+                    ) : null}
                   </dl>
                 </aside>
               </div>
@@ -718,14 +757,24 @@ export default function Dashboard() {
 
             {trajectory ? (
               <TrajectoryFocus
-                className="mt-6"
+                id="focus"
+                className="mt-6 scroll-mt-8"
                 trajectory={trajectory}
                 taskTitles={taskTitles}
                 chatTask={current ? { taskId: current.task_id, taskTitle: current.title } : null}
+                isTaskOpen={(taskId) => {
+                  const all = [...board.todo, ...board.in_progress, ...board.review, ...board.done];
+                  const target = all.find((item) => item.task_id === taskId);
+                  return target ? taskLock(target, board, rights.pickFirstTask) === null : false;
+                }}
               />
             ) : null}
 
             {career ? <CareerQuests className="mt-6" career={career} /> : null}
+
+            <TeamMessageCard className="mt-6" taskTitle={current?.title ?? null} />
+
+            <DrillCard className="mt-6" />
 
             <section id="path" className="mt-12 scroll-mt-8">
               <div className="mb-5 flex items-end justify-between gap-4">
@@ -746,7 +795,8 @@ export default function Dashboard() {
                   const done = task.status === "done";
                   const weak = done && task.close_quality === "weak";
                   const now = current?.task_id === task.task_id;
-                  const open = taskIsOpen(task, board, rights.pickFirstTask);
+                  const lock = taskLock(task, board, rights.pickFirstTask);
+                  const open = lock === null;
                   return (
                     <div key={task.task_id} className="flex min-w-0 items-center">
                       {i > 0 && (
@@ -760,6 +810,7 @@ export default function Dashboard() {
                       <button
                         type="button"
                         disabled={!open}
+                        title={open ? task.title : `${task.title} · ${lock!.reason}`}
                         onClick={() => open && navigate(`/task/${task.task_id}`)}
                         className="flex min-w-[88px] flex-col items-center gap-2 disabled:cursor-default"
                       >
@@ -813,7 +864,8 @@ export default function Dashboard() {
                       )}
                       {board[col.key].map((t) => {
                         const isNow = current?.task_id === t.task_id;
-                        const open = taskIsOpen(t, board, rights.pickFirstTask);
+                        const lock = taskLock(t, board, rights.pickFirstTask);
+                        const open = lock === null;
                         const preview = presentTask(t.description, career?.grade, false).prose;
                         return (
                           <li key={t.task_id}>
@@ -833,7 +885,7 @@ export default function Dashboard() {
                                 {isNightIncident(t.title) && col.key === "todo" ? " · необязательно" : ""}
                               </p>
                               <p className="mt-1 line-clamp-2 text-[12px] text-muted-foreground">
-                                {open ? preview : "По очереди — сначала текущая задача"}
+                                {open ? preview : lock!.reason}
                               </p>
                               {t.close_quality === "weak" && (
                                 <p className="mt-2 font-mono text-[11px] text-warning">

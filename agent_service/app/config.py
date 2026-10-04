@@ -70,7 +70,7 @@ class OpenAISettings(BaseSettings):
 
 class JevSettings(BaseSettings):
     enabled: bool = True
-    api_key: str
+    api_key: str = ""
     base_url: str = "https://openrouter.ai/api"
     model: str = "typesafe/jev-1.13"
     timeout_sec: float = 3.0
@@ -106,8 +106,23 @@ class ChatHistorySettings(BaseSettings):
 class SubmissionGatewaySettings(BaseSettings):
     url: str = "http://submission_service:8000"
     timeout_sec: float = 5.0
+    internal_token: str = ""
 
     model_config = SettingsConfigDict(env_prefix="AGENT_SERVICE_SUBMISSION_")
+
+
+class UserGatewaySettings(BaseSettings):
+    url: str = "http://user_service:8000"
+    timeout_sec: float = 5.0
+
+    model_config = SettingsConfigDict(env_prefix="AGENT_SERVICE_USER_")
+
+
+class TemplateSettings(BaseSettings):
+    enabled: bool = True
+    max_repair_rounds: int = 1
+
+    model_config = SettingsConfigDict(env_prefix="AGENT_SERVICE_TEMPLATES_")
 
 
 class CareerSettings(BaseSettings):
@@ -157,6 +172,8 @@ class Settings(BaseSettings):
     redis_settings: RedisSettings = RedisSettings()  # type: ignore[call-arg]
     langfuse_settings: LangfuseSettings = LangfuseSettings()
     submission_gateway_settings: SubmissionGatewaySettings = SubmissionGatewaySettings()
+    user_gateway_settings: UserGatewaySettings = UserGatewaySettings()
+    template_settings: TemplateSettings = TemplateSettings()
     career_settings: CareerSettings = CareerSettings()
     token_settings: TokenSettings = TokenSettings()
 

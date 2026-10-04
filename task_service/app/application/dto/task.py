@@ -16,6 +16,7 @@ class TaskDTO:
     close_quality: str | None = None
     review_bug: str | None = None
     close_note: str | None = None
+    hidden_tests: str = ""
 
     @classmethod
     def from_document(cls, doc: dict) -> "TaskDTO":

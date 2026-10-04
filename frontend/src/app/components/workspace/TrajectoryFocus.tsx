@@ -49,28 +49,20 @@ function SkillRow({ skill, active }: { skill: TrajectorySkill; active: boolean }
   );
 }
 
-function MeterStrip({ trajectory }: { trajectory: UserTrajectory }) {
-  return (
-    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
-      <span>Мастерство {pct01(trajectory.mastery)}%</span>
-      <span>Готовность {pct01(trajectory.readiness)}%</span>
-      <span>Темп {pct01(trajectory.pace)}%</span>
-    </div>
-  );
-}
-
 export function TrajectoryFocus({
   trajectory,
   taskTitles,
   chatTask,
-  showMeters = false,
   className,
+  id,
+  isTaskOpen,
 }: {
   trajectory: UserTrajectory;
   taskTitles?: Record<number, string>;
   chatTask?: { taskId: number; taskTitle?: string } | null;
-  showMeters?: boolean;
   className?: string;
+  id?: string;
+  isTaskOpen?: (taskId: number) => boolean;
 }) {
   const navigate = useNavigate();
   const focus = trajectory.focus ?? null;
@@ -88,7 +80,7 @@ export function TrajectoryFocus({
     });
 
   return (
-    <section className={cn("rounded-[10px] border border-border bg-card", className)}>
+    <section id={id} className={cn("rounded-[10px] border border-border bg-card", className)}>
       <div className="grid gap-0 lg:grid-cols-[1.4fr_1fr]">
         <div className="p-7 sm:p-9">
           <div className="flex flex-wrap items-center gap-2">
@@ -99,7 +91,6 @@ export function TrajectoryFocus({
               </span>
             ) : null}
           </div>
-          {showMeters ? <MeterStrip trajectory={trajectory} /> : null}
 
           {focus ? (
             <>
@@ -161,7 +152,8 @@ export function TrajectoryFocus({
                           {item.detail ? (
                             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.detail}</p>
                           ) : null}
-                          {item.task_id != null ? (
+                          {item.task_id != null &&
+                          (isTaskOpen?.(item.task_id) ?? true) ? (
                             <button
                               type="button"
                               onClick={() => navigate(`/task/${item.task_id}`)}

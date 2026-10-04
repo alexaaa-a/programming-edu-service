@@ -63,6 +63,7 @@ export default function TeamChat() {
 
   const [userName, setUserName] = useState<string | undefined>();
   const [oneSpeaker, setOneSpeaker] = useState(false);
+  const [canPickTask, setCanPickTask] = useState(false);
   const [emmaArmed, setEmmaArmed] = useState(Boolean(emmaBriefing));
   const [adminRole, setAdminRole] = useState<AdminRole>("user");
   const [message, setMessage] = useState(() => chatState?.draft?.trim() ?? "");
@@ -79,7 +80,9 @@ export default function TeamChat() {
         const [me, role, career] = await Promise.all([getMe(), getMyAdminRole(), getCareer()]);
         setUserName(me.name);
         setAdminRole(role.role);
-        setOneSpeaker(careerRights(career?.grade).oneSpeaker);
+        const rights = careerRights(career?.grade);
+        setOneSpeaker(rights.oneSpeaker);
+        setCanPickTask(rights.pickFirstTask);
       } catch {
         /* rail still works */
       }
@@ -90,7 +93,7 @@ export default function TeamChat() {
     let cancelled = false;
     const loadTrajectory = async () => {
       try {
-        const next = await getMyTrajectory(chatState?.taskId);
+        const next = await getMyTrajectory(chatState?.taskId, canPickTask);
         if (!cancelled) setTrajectory(next);
       } catch {
         if (!cancelled) setTrajectory(null);
@@ -110,7 +113,7 @@ export default function TeamChat() {
       window.removeEventListener("submission-review-ready", onReviewReady);
       window.removeEventListener("focus", onFocus);
     };
-  }, [chatState?.taskId]);
+  }, [chatState?.taskId, canPickTask]);
 
   useEffect(() => {
     let cancelled = false;

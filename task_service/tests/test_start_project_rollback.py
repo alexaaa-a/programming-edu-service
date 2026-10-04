@@ -165,6 +165,23 @@ def test_start_project_rolls_back_when_kafka_fails():
     assert user_db.updates and user_db.updates[0][1] == "cancelled"
 
 
+def test_task_created_event_carries_title_and_queue_order():
+    user_db = FakeUserProjectDB()
+    producer = FakeProducer()
+    uc = StartProjectUseCase(
+        user_project_db=user_db,  # type: ignore[arg-type]
+        project_db=FakeProjectDB(_template()),  # type: ignore[arg-type]
+        sprint_db=FakeSprintDB(),  # type: ignore[arg-type]
+        task_db=FakeTaskDB(),  # type: ignore[arg-type]
+        task_event_producer=producer,  # type: ignore[arg-type]
+        career_db=FakeCareerDB(),  # type: ignore[arg-type]
+    )
+    assert asyncio.run(uc(7, 1)) is True
+
+    assert [event["title"] for event in producer.events] == ["A", "B"]
+    assert [event["order"] for event in producer.events] == [0, 1]
+
+
 def test_user_project_update_uses_matched_count():
     text = (
         Path(__file__).resolve().parents[1]

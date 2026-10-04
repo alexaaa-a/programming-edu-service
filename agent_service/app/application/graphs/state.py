@@ -10,6 +10,7 @@ class ReviewState(TypedDict):
     user_id: NotRequired[str | None]
     attempt: NotRequired[int | None]
     previous_feedback: NotRequired[str | None]
+    hidden_tests: NotRequired[str | None]
     trace_id: NotRequired[str]
     tool_facts: NotRequired[str]
     tool_report: NotRequired[Any]

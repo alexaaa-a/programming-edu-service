@@ -18,7 +18,7 @@ from submission_service.app.application.trajectory.knowledge import (
     condition,
     slip_probability,
 )
-from submission_service.app.application.trajectory.planner import choose_next_task
+from submission_service.app.application.trajectory.planner import available_tasks, choose_next_task
 from submission_service.app.application.trajectory.simulation import SimConfig, simulate
 from submission_service.app.application.trajectory.skills import classify, task_profile
 
@@ -214,18 +214,76 @@ def test_next_task_prefers_started_work_then_learning_edge():
         for task in range(1, 5)
     ]
     tasks = [
-        TaskInfo(task_id=4, status="done", description=LOGIC),
-        TaskInfo(task_id=10, status="todo", description="Функция возвращает произведение двух чисел."),
-        TaskInfo(task_id=11, status="todo", description=f"{EDGE}. Проверить граничные значения."),
+        TaskInfo(task_id=4, status="done", description=LOGIC, title="Сделано", order=0),
+        TaskInfo(
+            task_id=10,
+            status="todo",
+            description="Функция возвращает произведение двух чисел.",
+            title="Произведение",
+            order=1,
+        ),
+        TaskInfo(
+            task_id=11,
+            status="todo",
+            description=f"{EDGE}. Проверить граничные значения.",
+            title="Границы",
+            order=2,
+        ),
     ]
     result = compute_trajectory(history, task_id=4, now=NOW, current_task_status="done", tasks=tasks)
     assert result.action == "next_task"
-    assert result.next_task_id == 11
-    assert any(item.kind == "next_task" and item.task_id == 11 for item in result.recommendations)
+    assert result.next_task_id == 10
+    assert any(item.kind == "next_task" and item.task_id == 10 for item in result.recommendations)
 
-    started = tasks + [TaskInfo(task_id=12, status="in_progress", description=LOGIC)]
+    free = compute_trajectory(
+        history,
+        task_id=4,
+        now=NOW,
+        current_task_status="done",
+        tasks=tasks,
+        can_pick_task=True,
+    )
+    assert free.next_task_id == 11
+
+    started = tasks + [
+        TaskInfo(task_id=12, status="in_progress", description=LOGIC, title="В работе", order=3)
+    ]
     tracer = KnowledgeTracer()
     assert choose_next_task(started, tracer.snapshot(NOW), current_task_id=4).task_id == 12
+
+
+def test_board_rules_decide_what_can_be_recommended():
+    tracer = KnowledgeTracer()
+    knowledge = tracer.snapshot(NOW)
+    queue = [
+        TaskInfo(task_id=1, status="todo", description=LOGIC, title="Первая", order=0),
+        TaskInfo(task_id=2, status="todo", description=EDGE, title="Вторая", order=1),
+    ]
+    assert [task.task_id for task in available_tasks(queue)] == [1]
+    assert [task.task_id for task in available_tasks(queue, can_pick=True)] == [1, 2]
+
+    waiting = [TaskInfo(task_id=1, status="review", description=LOGIC, title="Первая", order=0)] + queue[1:]
+    assert available_tasks(waiting) == []
+    assert choose_next_task(waiting, knowledge, current_task_id=1) is None
+
+    with_incident = waiting + [
+        TaskInfo(task_id=9, status="todo", description=EDGE, title="Ночной инцидент", order=999)
+    ]
+    assert [task.task_id for task in available_tasks(with_incident)] == [9]
+
+
+def test_recommendation_text_matches_the_board_rule():
+    tracer = KnowledgeTracer()
+    knowledge = tracer.snapshot(NOW)
+    queue = [
+        TaskInfo(task_id=1, status="todo", description=LOGIC, title="Первая", order=0),
+        TaskInfo(task_id=2, status="todo", description=EDGE, title="Вторая", order=1),
+    ]
+    forced = choose_next_task(queue, knowledge, current_task_id=None)
+    assert forced is not None and forced.only_choice is True
+
+    chosen = choose_next_task(queue, knowledge, current_task_id=None, can_pick=True)
+    assert chosen is not None and chosen.only_choice is False
 
 
 def test_all_done_and_ready_opens_next_sprint():

@@ -25,5 +25,6 @@ class SubmissionEventProducerInterface(Protocol):
             task_description: str,
             attempt: int = 1,
             previous_feedback: str | None = None,
+            hidden_tests: str | None = None,
     ) -> None:
         raise NotImplementedError

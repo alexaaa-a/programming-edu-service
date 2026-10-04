@@ -3,10 +3,13 @@ from fastapi import APIRouter, Request, status
 
 from agent_service.app.application.use_cases import ChatWithTeamUseCase
 from agent_service.app.application.use_cases.get_chat_history import GetChatHistoryUseCase
+from agent_service.app.application.use_cases.proactive_nudge import ProactiveNudgeUseCase
 from agent_service.app.config import Settings
 from agent_service.app.presentation.api.deps import get_current_user_id_or_401
 from agent_service.app.presentation.api.v1.chat.schema import (
     ChatHistoryMessage,
+    ChatNudgeRequest,
+    ChatNudgeResponse,
     ChatHistoryResponse,
     ChatRequest,
     ChatResponse,
@@ -75,4 +78,34 @@ async def chat(
             }
             for step in result.agent_path
         ],
+    )
+
+
+@router.post(
+    "/chat/nudge",
+    status_code=status.HTTP_200_OK,
+    response_model=ChatNudgeResponse,
+    description="Проверить, не пора ли команде написать студенту первой",
+)
+async def chat_nudge(
+        request: Request,
+        body: ChatNudgeRequest,
+        uc: FromDishka[ProactiveNudgeUseCase],
+        settings: FromDishka[Settings],
+) -> ChatNudgeResponse:
+    user_id = get_current_user_id_or_401(request, settings)
+    result = await uc(
+        user_id=user_id,
+        authorization=request.headers.get("Authorization") or "",
+        session_id=body.session_id,
+        task_title=body.task_title,
+    )
+    return ChatNudgeResponse(
+        sent=result.sent,
+        message=result.message,
+        speaker_id=result.speaker_id,
+        speaker_name=result.speaker_name,
+        speaker_role=result.speaker_role,
+        kind=result.kind,
+        task_id=result.task_id,
     )

@@ -47,6 +47,11 @@ class TrajectorySnapshot:
     focus_steps: list[str] = field(default_factory=list)
     focus_mentor: str = ""
     recommendations: list[str] = field(default_factory=list)
+    nudge_kind: str = ""
+    nudge_task_id: int | None = None
+    nudge_hours: int = 0
+    nudge_score: int | None = None
+    nudge_detail: str = ""
 
 
 def _pct(value: float) -> int:

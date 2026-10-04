@@ -2,7 +2,15 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { ArrowRight } from "lucide-react";
 import { toast } from "sonner";
-import { getMe, getMyAdminRole, getMyTrajectory, getSubmission, getTaskSubmissions } from "@/lib/api";
+import {
+  getCareer,
+  getMe,
+  getMyAdminRole,
+  getMyTrajectory,
+  getSubmission,
+  getTaskSubmissions,
+} from "@/lib/api";
+import { careerRights } from "@/lib/career-rights";
 import { startBackgroundReviewPoll } from "@/lib/background-review";
 import { countedRounds, MAX_ROUNDS } from "@/lib/close-gate";
 import type { AdminRole, Submission, UserTrajectory } from "@/lib/types";
@@ -94,15 +102,17 @@ export default function SprintReport() {
   const [adminRole, setAdminRole] = useState<AdminRole>("user");
   const [celebrate, setCelebrate] = useState(false);
   const [trajectory, setTrajectory] = useState<UserTrajectory | null>(null);
+  const [canPickTask, setCanPickTask] = useState(false);
 
   const idNum = submissionId ? Number(submissionId) : NaN;
 
   useEffect(() => {
     void (async () => {
       try {
-        const [me, role] = await Promise.all([getMe(), getMyAdminRole()]);
+        const [me, role, career] = await Promise.all([getMe(), getMyAdminRole(), getCareer()]);
         setUserName(me.name);
         setAdminRole(role.role);
+        setCanPickTask(careerRights(career?.grade).pickFirstTask);
       } catch {
         /* ignore */
       }
@@ -128,7 +138,7 @@ export default function SprintReport() {
             setAttemptCount(null);
           }
           try {
-            setTrajectory(await getMyTrajectory(sub.task_id));
+            setTrajectory(await getMyTrajectory(sub.task_id, canPickTask));
           } catch {
             setTrajectory(null);
           }
@@ -149,7 +159,7 @@ export default function SprintReport() {
     return () => {
       cancelled = true;
     };
-  }, [idNum]);
+  }, [idNum, canPickTask]);
 
   useEffect(() => {
     if (!submission || submission.review) return;
@@ -162,7 +172,7 @@ export default function SprintReport() {
         .then(async (sub) => {
           setSubmission(sub);
           try {
-            setTrajectory(await getMyTrajectory(sub.task_id));
+            setTrajectory(await getMyTrajectory(sub.task_id, canPickTask));
           } catch {
             /* keep previous trajectory CTA */
           }
@@ -287,8 +297,50 @@ export default function SprintReport() {
                 className="mt-4"
                 trajectory={trajectory}
                 chatTask={submission ? { taskId: submission.task_id } : null}
-                showMeters
               />
+            )}
+
+            {review.tests && review.tests.status !== "unavailable" && (
+              <section className="mt-8">
+                <h2 className="mb-3 text-sm font-medium">Тесты задачи</h2>
+                <div className="rounded-[10px] border border-border bg-card p-6">
+                  {review.tests.status === "passed" && (
+                    <>
+                      <p className="text-sm text-success">
+                        Прошли все {review.tests.total}.
+                      </p>
+                      <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
+                        Код запускали: он делает то, что просили. Балл ниже десяти может быть за
+                        структуру, имена и случаи, которых в тестах нет.
+                      </p>
+                    </>
+                  )}
+                  {review.tests.status === "failed" && (
+                    <>
+                      <p className="text-sm text-warning">
+                        Прошло {review.tests.passed} из {review.tests.total}.
+                      </p>
+                      {review.tests.failed_names.length > 0 && (
+                        <ul className="mt-3 space-y-1">
+                          {review.tests.failed_names.map((name) => (
+                            <li key={name} className="font-mono text-[12px] text-muted-foreground">
+                              {name}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground">
+                        Это не мнение команды, а запуск кода. Балл ограничен сверху, пока тесты красные.
+                      </p>
+                    </>
+                  )}
+                  {(review.tests.status === "error" || review.tests.status === "timeout") && (
+                    <p className="text-sm text-destructive">
+                      {review.tests.detail || "Код не удалось запустить."}
+                    </p>
+                  )}
+                </div>
+              </section>
             )}
 
             <section className="mt-8">
@@ -318,7 +370,14 @@ export default function SprintReport() {
                         {item.passed ? "✓" : "✗"}
                       </span>
                       <div className="min-w-0">
-                        <p className="text-sm leading-relaxed">{item.text}</p>
+                        <p className="text-sm leading-relaxed">
+                          {item.text}
+                          {item.line ? (
+                            <span className="ml-2 font-mono text-[11px] text-primary">
+                              строка {item.line}
+                            </span>
+                          ) : null}
+                        </p>
                         {item.note ? (
                           <p className="mt-1 text-xs text-muted-foreground">{item.note}</p>
                         ) : null}
@@ -342,7 +401,14 @@ export default function SprintReport() {
                         ✗
                       </span>
                       <div className="min-w-0">
-                        <p className="text-sm leading-relaxed">{item.text}</p>
+                        <p className="text-sm leading-relaxed">
+                          {item.text}
+                          {item.line ? (
+                            <span className="ml-2 font-mono text-[11px] text-primary">
+                              строка {item.line}
+                            </span>
+                          ) : null}
+                        </p>
                         {item.severity ? (
                           <p className="mt-1 font-mono text-[11px] text-muted-foreground">
                             {item.severity === "high"

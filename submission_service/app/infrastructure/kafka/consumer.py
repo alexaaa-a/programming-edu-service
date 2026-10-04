@@ -12,6 +12,7 @@ from submission_service.app.application.dto.submission import (
     CriterionResultDTO,
     PathStepResultDTO,
     ReviewDTO,
+    TaskTestsDTO,
 )
 from submission_service.app.application.interfaces.db.task_cache import TaskCacheInterface
 from submission_service.app.application.use_case.submissions.process_review_result import (
@@ -74,6 +75,7 @@ def _normalize_criteria(raw: Any) -> list[CriterionResultDTO]:
                 text=text,
                 passed=bool(item.get("passed")),
                 note=str(item.get("note") or "").strip(),
+                line=_as_line(item.get("line")),
             )
         )
     return out
@@ -97,8 +99,20 @@ def _normalize_challenges(raw: Any) -> list[ChallengeResultDTO]:
         severity = str(item.get("severity") or "medium").strip().lower()
         if severity not in {"low", "medium", "high"}:
             severity = "medium"
-        out.append(ChallengeResultDTO(text=text, severity=severity))
+        out.append(
+            ChallengeResultDTO(text=text, severity=severity, line=_as_line(item.get("line")))
+        )
     return out
+
+
+def _as_line(raw: Any) -> int | None:
+    if isinstance(raw, bool) or raw is None:
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if 1 <= value <= 10_000 else None
 
 
 def _normalize_agent_path(raw: Any) -> list[PathStepResultDTO]:
@@ -120,6 +134,30 @@ def _normalize_agent_path(raw: Any) -> list[PathStepResultDTO]:
             )
         )
     return out
+
+
+def _normalize_tests(raw: Any) -> TaskTestsDTO | None:
+    if not isinstance(raw, dict):
+        return None
+    status = str(raw.get("status") or "").strip()
+    if status not in {"passed", "failed", "error", "timeout", "unavailable"}:
+        return None
+    names = raw.get("failed_names")
+    failed_names = [str(item) for item in names][:10] if isinstance(names, list) else []
+    return TaskTestsDTO(
+        status=status,
+        total=_as_count(raw.get("total")),
+        passed=_as_count(raw.get("passed")),
+        failed_names=failed_names,
+        detail=str(raw.get("detail") or "")[:400],
+    )
+
+
+def _as_count(value: Any) -> int:
+    try:
+        return max(int(value), 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _parse_review_message(value: bytes) -> dict[str, Any] | None:
@@ -232,6 +270,7 @@ async def _handle_review_message(
             criteria=criteria,
             challenges=challenges,
             agent_path=agent_path,
+            tests=_normalize_tests(raw.get("tests")),
         )
     async with container() as request_container:
         uc = await request_container.get(ProcessReviewResultUseCase)
@@ -356,12 +395,22 @@ async def _handle_task_event(
             round_limit = int(raw["round_limit"])
         except (TypeError, ValueError):
             round_limit = None
+    title = raw.get("title")
+    order: int | None = None
+    if raw.get("order") is not None:
+        try:
+            order = int(raw["order"])
+        except (TypeError, ValueError):
+            order = None
     upserted = await task_cache.upsert_task(
         tid,
         uid,
         status_str,
         task_description=str(task_description) if task_description is not None else None,
         round_limit=round_limit,
+        title=str(title) if title is not None else None,
+        order=order,
+        tests=str(raw["tests"]) if raw.get("tests") is not None else None,
     )
     if not upserted:
         logger.warning(

@@ -35,6 +35,7 @@ class ReviewSubmissionUseCase:
             user_id: str | None = None,
             attempt: int | None = None,
             previous_feedback: str | None = None,
+            hidden_tests: str | None = None,
     ) -> ReviewSubmissionResult:
         ensure_trace_id()
 
@@ -47,6 +48,7 @@ class ReviewSubmissionUseCase:
                 user_id=user_id,
                 attempt=attempt,
                 previous_feedback=previous_feedback,
+                hidden_tests=hidden_tests,
             )
 
         review = await trace_async(

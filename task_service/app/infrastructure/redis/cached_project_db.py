@@ -18,7 +18,11 @@ def _template_from_json(s: str) -> ProjectTemplateDTO | None:
         sprints = []
         for s_data in d.get("sprints", []):
             tasks = [
-                ProjectTaskDTO(title=t["title"], description=t["description"])
+                ProjectTaskDTO(
+                    title=t["title"],
+                    description=t["description"],
+                    tests=str(t.get("tests") or ""),
+                )
                 for t in s_data.get("tasks", [])
             ]
             sprints.append(

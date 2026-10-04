@@ -5,6 +5,7 @@ from dataclasses import dataclass
 class TaskDTO:
     title: str
     description: str
+    tests: str = ""
 
 
 @dataclass

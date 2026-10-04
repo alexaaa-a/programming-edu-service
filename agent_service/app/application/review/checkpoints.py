@@ -140,6 +140,7 @@ def load_checks(data: Any) -> list[CriterionCheck]:
                 passed=bool(item.get("passed")),
                 note=str(item.get("note") or ""),
                 required=bool(item.get("required", True)),
+                line=item.get("line") if isinstance(item.get("line"), int) else None,
             )
         )
     return out

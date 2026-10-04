@@ -6,9 +6,12 @@ from submission_service.app.application.dto.submission import SubmissionDTO
 from submission_service.app.application.trajectory.evidence import (
     EvidenceConfig,
     build_opportunities,
+    drill_opportunities,
     normalize_score,
     submission_observations,
 )
+from submission_service.app.application.drills.models import DrillRun
+from submission_service.app.application.trajectory.nudge import NudgeSignal, detect_nudge
 from submission_service.app.application.trajectory.knowledge import (
     BktParams,
     KnowledgeState,
@@ -105,7 +108,25 @@ class TrajectoryResult:
     focus: Focus | None = None
     recommendations: list[Recommendation] = field(default_factory=list)
     next_task_id: int | None = None
+    nudge: NudgeSignal | None = None
     model: str = MODEL_VERSION
+
+
+def compute_knowledge(
+        submissions: Sequence[SubmissionDTO] | None,
+        descriptions: dict[int, str] | None = None,
+        drill_runs: Sequence[DrillRun] = (),
+        now: datetime | None = None,
+        config: TrajectoryConfig | None = None,
+) -> KnowledgeState:
+    cfg = config or TrajectoryConfig()
+    stamp = _as_utc(now or datetime.now(tz=timezone.utc))
+    ordered = sorted(list(submissions or []), key=_created_at)
+    opportunities = build_opportunities(ordered, descriptions or {}, cfg.evidence)
+    opportunities.extend(drill_opportunities(drill_runs))
+    if not opportunities:
+        return KnowledgeState(params=cfg.bkt)
+    return trace_knowledge(opportunities, now=stamp, params=cfg.bkt)
 
 
 def compute_trajectory(
@@ -115,6 +136,8 @@ def compute_trajectory(
         config: TrajectoryConfig | None = None,
         current_task_status: str | None = None,
         tasks: Sequence[TaskInfo] | None = None,
+        can_pick_task: bool = False,
+        drill_runs: Sequence[DrillRun] = (),
 ) -> TrajectoryResult:
     cfg = config or TrajectoryConfig()
     stamp = _as_utc(now or datetime.now(tz=timezone.utc))
@@ -124,10 +147,14 @@ def compute_trajectory(
 
     if not items:
         open_profile = _open_profile(task_list, exclude=task_id)
-        knowledge = KnowledgeState(params=cfg.bkt)
+        knowledge = (
+            trace_knowledge(drill_opportunities(drill_runs), now=stamp, params=cfg.bkt)
+            if drill_runs
+            else KnowledgeState(params=cfg.bkt)
+        )
         current_profile = task_profile(descriptions.get(task_id)) if task_id is not None else {}
         focus = choose_focus(knowledge, None, current_profile, open_profile)
-        next_task = choose_next_task(task_list, knowledge, task_id)
+        next_task = choose_next_task(task_list, knowledge, task_id, can_pick=can_pick_task)
         return TrajectoryResult(
             mastery=0.0,
             difficulty=0.0,
@@ -139,6 +166,7 @@ def compute_trajectory(
             block_next_sprint=True,
             current_task_id=task_id,
             readiness_threshold=round(cfg.readiness_threshold, 3),
+            skills=_skill_views(knowledge, focus),
             focus=focus,
             recommendations=build_recommendations(focus, None, knowledge, next_task, cfg.planner),
             next_task_id=next_task.task_id if next_task else None,
@@ -150,6 +178,7 @@ def compute_trajectory(
     window_task_ids = list(dict.fromkeys(item.task_id for item in window))
 
     opportunities = build_opportunities(ordered, descriptions, cfg.evidence)
+    opportunities.extend(drill_opportunities(drill_runs))
     knowledge = trace_knowledge(opportunities, now=stamp, params=cfg.bkt)
 
     current_id = task_id if task_id is not None else _latest_task_id(ordered)
@@ -191,7 +220,7 @@ def compute_trajectory(
     pace = _pace(ordered, stamp, cfg)
     velocity = mastery - _mastery_at(opportunities, knowledge, stamp - timedelta(days=cfg.velocity_days), cfg)
 
-    next_task = choose_next_task(task_list, knowledge, current_id)
+    next_task = choose_next_task(task_list, knowledge, current_id, can_pick=can_pick_task)
     focus = choose_focus(knowledge, failures, current_profile, open_profile)
 
     action, reason, block_close, block_next = _decide_action(
@@ -230,6 +259,7 @@ def compute_trajectory(
         focus=focus,
         recommendations=recommendations,
         next_task_id=next_task.task_id if next_task else None,
+        nudge=detect_nudge(ordered, stamp),
     )
 
 

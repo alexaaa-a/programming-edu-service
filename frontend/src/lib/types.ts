@@ -128,11 +128,13 @@ export interface CriterionResult {
   text: string;
   passed: boolean;
   note?: string;
+  line?: number | null;
 }
 
 export interface ChallengeResult {
   text: string;
   severity?: "low" | "medium" | "high" | string;
+  line?: number | null;
 }
 
 export interface PathStepResult {
@@ -142,6 +144,14 @@ export interface PathStepResult {
   detail?: string;
 }
 
+export interface TaskTestsResult {
+  status: "passed" | "failed" | "error" | "timeout" | "unavailable" | string;
+  total: number;
+  passed: number;
+  failed_names: string[];
+  detail: string;
+}
+
 export interface SubmissionReview {
   score: number;
   feedback: string;
@@ -149,6 +159,7 @@ export interface SubmissionReview {
   criteria?: CriterionResult[];
   challenges?: ChallengeResult[];
   agent_path?: PathStepResult[];
+  tests?: TaskTestsResult | null;
 }
 
 export interface Submission {
@@ -198,6 +209,51 @@ export interface AdminUser {
 export interface ProjectTemplateTask {
   title: string;
   description: string;
+  tests?: string;
+}
+
+export interface TemplateIssue {
+  code: string;
+  message: string;
+  task: string;
+}
+
+export interface TemplateTaskReport {
+  title: string;
+  ok: boolean;
+  attempts: number;
+  tests_total: number;
+  reference_passed: number;
+  broken_failed: number;
+  tests_kept: boolean;
+  dropped: boolean;
+  issues: TemplateIssue[];
+}
+
+export interface GeneratedSprint {
+  order: number;
+  sprint_title: string;
+  project_title: string;
+  project_description: string;
+  tasks: ProjectTemplateTask[];
+  ok: boolean;
+  rounds: number;
+  tests_ran: boolean;
+  issues: TemplateIssue[];
+  reports: TemplateTaskReport[];
+  summary: string;
+}
+
+export interface GenerateSprintPayload {
+  topic: string;
+  direction: string;
+  level: string;
+  sprints: number;
+  tasks_per_sprint: number;
+  notes?: string;
+  with_tests: boolean;
+  order: number;
+  used_titles: string[];
 }
 
 export interface ProjectTemplateSprint {
@@ -310,4 +366,41 @@ export interface UserTrajectory {
   recommendations?: TrajectoryRecommendation[];
   next_task_id?: number | null;
   model?: string;
+}
+
+/** Короткое упражнение на навык, который начал забываться. */
+export interface DrillOffer {
+  drill_id: string;
+  title: string;
+  prompt: string;
+  starter: string;
+  minutes: number;
+  skill_id: string;
+  skill_title: string;
+  kind: "review" | "gap" | string;
+  reason: string;
+  days_since: number;
+  retention: number;
+}
+
+export interface DrillRunResult {
+  status: "passed" | "failed" | "error" | "timeout" | string;
+  total: number;
+  passed: number;
+  failed: number;
+  failures: { name: string; message: string }[];
+  detail: string;
+  skill_id: string;
+  recorded: boolean;
+}
+
+/** Сообщение, которое команда написала сама, без вопроса студента. */
+export interface TeamNudge {
+  sent: boolean;
+  message: string;
+  speaker_id: string;
+  speaker_name: string;
+  speaker_role: string;
+  kind: "repeat" | "silence" | string;
+  task_id: number | null;
 }

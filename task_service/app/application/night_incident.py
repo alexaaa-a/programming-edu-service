@@ -9,6 +9,7 @@ from task_service.app.application.dto.task import TaskDTO
 _logger = logging.getLogger("task_service.night_incident")
 
 NIGHT_INCIDENT_TITLE = "Ночной инцидент"
+NIGHT_INCIDENT_ORDER = 999
 def incident_description(scene: str, code: str, expect: str) -> str:
     return f"""Ночь. Эмма пишет: {scene.strip()}
 
@@ -142,6 +143,8 @@ async def open_night_incident(
             user_id=user_id,
             status=task.status,
             task_description=task.description,
+            title=task.title,
+            order=NIGHT_INCIDENT_ORDER,
         )
     except Exception:
         _logger.exception("night incident publish failed task_id=%s", task.task_id)

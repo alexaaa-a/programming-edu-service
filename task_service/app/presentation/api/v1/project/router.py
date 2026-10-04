@@ -144,7 +144,10 @@ async def create_project_template(
             SprintOrderDTO(
                 order=s.order,
                 title=s.title,
-                tasks=[TemplateTaskDTO(title=t.title, description=t.description) for t in s.tasks],
+                tasks=[
+                    TemplateTaskDTO(title=t.title, description=t.description, tests=t.tests)
+                    for t in s.tasks
+                ],
             )
             for s in body.sprints
         ],

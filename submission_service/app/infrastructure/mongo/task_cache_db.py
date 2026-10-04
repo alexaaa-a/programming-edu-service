@@ -26,6 +26,9 @@ class TaskCacheDB(TaskCacheInterface):
             status: str,
             task_description: str | None = None,
             round_limit: int | None = None,
+            title: str | None = None,
+            order: int | None = None,
+            tests: str | None = None,
     ) -> bool:
         try:
             update: dict[str, Any] = {
@@ -37,6 +40,12 @@ class TaskCacheDB(TaskCacheInterface):
                 update["task_description"] = task_description
             if round_limit is not None:
                 update["round_limit"] = round_limit
+            if title is not None:
+                update["title"] = title
+            if order is not None:
+                update["order"] = int(order)
+            if tests is not None:
+                update["tests"] = tests
 
             await self._coll.update_one(
                 {"task_id": task_id, "user_id": user_id},
@@ -47,6 +56,19 @@ class TaskCacheDB(TaskCacheInterface):
         except Exception:
             self._logger.exception("Failed to upsert task in cache")
             return False
+
+    async def get_task_tests(self, task_id: int, user_id: int) -> str | None:
+        try:
+            doc = await self._coll.find_one(
+                {"task_id": task_id, "user_id": user_id},
+                {"_id": 0, "tests": 1},
+            )
+        except Exception:
+            self._logger.exception("Failed to read task tests from cache")
+            return None
+        if not doc:
+            return None
+        return str(doc.get("tests") or "") or None
 
     async def delete_task(self, task_id: int, user_id: int) -> bool:
         try:
@@ -90,17 +112,34 @@ class TaskCacheDB(TaskCacheInterface):
         try:
             cursor = self._coll.find(
                 {"user_id": user_id},
-                {"_id": 0, "task_id": 1, "status": 1, "task_description": 1},
+                {
+                    "_id": 0,
+                    "task_id": 1,
+                    "status": 1,
+                    "task_description": 1,
+                    "title": 1,
+                    "order": 1,
+                },
             )
-            return [
+            tasks = [
                 TaskInfo(
                     task_id=int(doc["task_id"]),
                     status=str(doc.get("status") or ""),
                     description=str(doc.get("task_description") or ""),
+                    title=str(doc.get("title") or ""),
+                    order=_as_order(doc.get("order")),
                 )
                 async for doc in cursor
                 if doc.get("task_id") is not None
             ]
+            return sorted(tasks, key=lambda item: (item.order is None, item.order or 0))
         except Exception:
             self._logger.exception("Failed to list user tasks from cache")
             return None
+
+
+def _as_order(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

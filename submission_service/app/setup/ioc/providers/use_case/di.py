@@ -3,10 +3,13 @@ from dishka import provide, provide_all, Provider, Scope
 from submission_service.app.application.interfaces.db.submissions_db import SubmissionsDBInterface
 from submission_service.app.application.interfaces.db.task_cache import TaskCacheInterface
 from submission_service.app.application.interfaces.decisions import DecisionModelInterface
+from submission_service.app.application.use_case.drills.get_drill import GetDrillUseCase
+from submission_service.app.application.use_case.drills.record_drill_run import RecordDrillRunUseCase
 from submission_service.app.application.use_case.tasks.get_task_submissions import GetTaskSubmissionsUseCase
 from submission_service.app.application.use_case.submissions.get_submission import GetSubmissionUseCase
 from submission_service.app.application.use_case.submissions.get_submission_review import GetSubmissionReviewUseCase
 from submission_service.app.application.use_case.submissions.get_user_submission_stats import GetUserSubmissionStatsUseCase
+from submission_service.app.application.use_case.submissions.get_review_agreement import GetReviewAgreementUseCase
 from submission_service.app.application.use_case.submissions.get_user_trajectory import GetUserTrajectoryUseCase
 from submission_service.app.application.use_case.submissions.process_review_result import ProcessReviewResultUseCase
 from submission_service.app.application.use_case.submissions.submit_solution import SubmitSubmissionUseCase
@@ -22,7 +25,10 @@ class UseCaseProvider(Provider):
         GetSubmissionReviewUseCase,
         GetSubmissionUseCase,
         GetUserSubmissionStatsUseCase,
+        GetReviewAgreementUseCase,
         GetUserTrajectoryUseCase,
+        GetDrillUseCase,
+        RecordDrillRunUseCase,
         HealthCheckUseCase,
         SubmitSubmissionUseCase
     )

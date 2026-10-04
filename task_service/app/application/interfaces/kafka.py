@@ -22,6 +22,9 @@ class TaskEventProducerInterface(Protocol):
             user_id: int,
             status: str,
             task_description: str,
+            title: str | None = None,
+            order: int | None = None,
+            tests: str | None = None,
     ) -> None:
         raise NotImplementedError
 
@@ -33,5 +36,6 @@ class TaskEventProducerInterface(Protocol):
             status: str,
             task_description: str,
             round_limit: int | None = None,
+            title: str | None = None,
     ) -> None:
         raise NotImplementedError

@@ -55,6 +55,7 @@ class SubmitSubmissionUseCase:
 
         task_description = await self.task_cache.get_task_description(task_id, user_id)
         task_description = task_description or ""
+        hidden_tests = await self._task_tests(task_id, user_id)
         submission = SubmissionDTO(
             submission_id=self._generate_submission_id(),
             user_id=user_id,
@@ -95,6 +96,7 @@ class SubmitSubmissionUseCase:
                 task_description=task_description,
                 attempt=attempt,
                 previous_feedback=previous_feedback,
+                hidden_tests=hidden_tests,
             )
         except Exception:
             marked = await self.submission_db.mark_submission_status(
@@ -106,6 +108,15 @@ class SubmitSubmissionUseCase:
                 await self.submission_db.delete_submission(submission.submission_id)
             return SubmitSubmissionResult(error="produce_failed")
         return SubmitSubmissionResult(submission_id=submission.submission_id)
+
+    async def _task_tests(self, task_id: int, user_id: int) -> str | None:
+        getter = getattr(self.task_cache, "get_task_tests", None)
+        if getter is None:
+            return None
+        try:
+            return await getter(task_id, user_id)
+        except Exception:
+            return None
 
     async def _round_cap(self, task_id: int, user_id: int) -> int:
         getter = getattr(self.task_cache, "get_round_limit", None)

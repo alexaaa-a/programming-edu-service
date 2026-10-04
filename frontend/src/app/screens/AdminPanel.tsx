@@ -15,13 +15,20 @@ import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
 import { LoadingState } from "../components/LoadingState";
 import { EmptyState } from "../components/EmptyState";
 import { Field, PrimaryButton, fieldClass, selectClass } from "../components/onboarding/Field";
+import { TemplateGenerator, type TemplateDraft } from "../components/admin/TemplateGenerator";
 import { cn } from "../components/ui/utils";
 
 const sampleSprints = [
   {
     order: 1,
     title: "Спринт 1",
-    tasks: [{ title: "Настроить проект", description: "Создать базовую структуру и README" }],
+    tasks: [
+      {
+        title: "Настроить проект",
+        description: "Создать базовую структуру и README",
+        tests: "",
+      },
+    ],
   },
 ];
 
@@ -110,6 +117,13 @@ export default function AdminPanel() {
     }
   };
 
+  const handleDraft = (draft: TemplateDraft) => {
+    setTitle(draft.title);
+    setDescription(draft.description);
+    setSprintsJson(JSON.stringify(draft.sprints, null, 2));
+    toast.success("Черновик готов, проверь и создавай шаблон");
+  };
+
   const handleCreateTemplate = async () => {
     if (!title.trim() || !description.trim()) {
       toast.error("Заполните название и описание");
@@ -173,10 +187,18 @@ export default function AdminPanel() {
               Роль: {role}
             </p>
 
-            <section className="mt-8 rounded-[10px] border border-border bg-card p-6 sm:p-8">
+            <TemplateGenerator
+              direction={direction}
+              level={level}
+              onDraft={handleDraft}
+            />
+
+            <section className="mt-6 rounded-[10px] border border-border bg-card p-6 sm:p-8">
               <h2 className="text-lg font-medium tracking-tight">Шаблон проекта</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                JSON спринтов как в API. Направление и уровень — те же, что на онбординге.
+                JSON спринтов как в API: поле tests у задачи — скрытые тесты, студент их
+                не видит. Направление и уровень — те же, что на онбординге, и генератор
+                берёт их отсюда же.
               </p>
               <div className="mt-6 space-y-4">
                 <Field
@@ -227,7 +249,7 @@ export default function AdminPanel() {
                     onChange={(e) => setSprintsJson(e.target.value)}
                     className={cn(
                       fieldClass,
-                      "min-h-[220px] h-auto py-3 font-mono text-[13px] leading-relaxed",
+                      "block w-full min-h-[220px] h-auto py-3 font-mono text-[13px] leading-relaxed",
                     )}
                   />
                 </label>

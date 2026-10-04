@@ -8,6 +8,7 @@ class StartProject(BaseModel):
 class Task(BaseModel):
     title: str
     description: str
+    tests: str = ""
 
 
 class SprintOrder(BaseModel):

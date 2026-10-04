@@ -8,6 +8,7 @@ from agent_service.app.application.dto import (
     CriterionResult,
     PathStepResult,
     Review,
+    TaskTestsResult,
 )
 from agent_service.app.application.interfaces import (
     LLMInterface,
@@ -23,6 +24,7 @@ from agent_service.app.application.review.acceptance import (
     format_checks_for_feedback,
     grade_rubric,
 )
+from agent_service.app.application.review.anchor import anchor_line
 from agent_service.app.application.review.adversarial import (
     ChallengeVerdict,
     challenge_suggestions,
@@ -123,6 +125,7 @@ class ReviewOrchestrator:
             user_id: str | None = None,
             attempt: int | None = None,
             previous_feedback: str | None = None,
+            hidden_tests: str | None = None,
     ) -> Review:
         logger = logging.getLogger("agent_service")
         try:
@@ -157,6 +160,7 @@ class ReviewOrchestrator:
                 "user_id": user_id,
                 "attempt": attempt,
                 "previous_feedback": previous_feedback,
+                "hidden_tests": hidden_tests,
                 "trace_id": trace_id,
                 "path": AgentPath(),
                 "tool_facts": "",
@@ -187,6 +191,7 @@ class ReviewOrchestrator:
             path: AgentPath,
             logger: logging.Logger,
             trace_id: str,
+            hidden_tests: str | None = None,
     ) -> tuple[ToolReport | None, str, AgentPath]:
         report = await self._inspect(
             code=code,
@@ -196,6 +201,7 @@ class ReviewOrchestrator:
             logger=logger,
             trace_id=trace_id,
             path=path,
+            hidden_tests=hidden_tests,
         )
         tool_facts = report.as_prompt_block() if report is not None else ""
         revision_block = _revision_block(attempt=attempt, previous_feedback=previous_feedback)
@@ -558,6 +564,7 @@ class ReviewOrchestrator:
             user_id: str | None,
             logger: logging.Logger,
             trace_id: str,
+            code: str = "",
     ) -> Review:
         card = compose_score(
             task=reviewer_review.score,
@@ -607,10 +614,13 @@ class ReviewOrchestrator:
                     text=item.text,
                     passed=item.passed,
                     note=item.note,
+                    line=None
+                    if item.passed
+                    else anchor_line(f"{item.note} {item.text}", code, item.line),
                 )
                 for item in checks
             ],
-            challenges=_challenge_results(challenge),
+            challenges=_challenge_results(challenge, code),
             agent_path=[
                 PathStepResult(
                     kind=step.kind,
@@ -620,6 +630,7 @@ class ReviewOrchestrator:
                 )
                 for step in path.steps
             ],
+            tests=_tests_result(report),
         )
         await self._remember_review(
             review=review,
@@ -699,6 +710,7 @@ class ReviewOrchestrator:
             logger: logging.Logger,
             trace_id: str,
             path: AgentPath,
+            hidden_tests: str | None = None,
     ) -> ToolReport | None:
         if self._toolkit is None:
             path.record("tools", kind="tool", status="skip", detail="toolkit missing")
@@ -715,6 +727,7 @@ class ReviewOrchestrator:
                     task_description=task_description,
                     task_id=task_id,
                     user_id=user_id,
+                    hidden_tests=hidden_tests,
                 )
                 obs.update(
                     output={
@@ -877,7 +890,23 @@ def _with_scorecard_and_extras(
     return "\n\n".join(parts)
 
 
-def _challenge_results(challenge: ChallengeVerdict | None) -> list[ChallengeResult]:
+def _tests_result(report: ToolReport | None) -> TaskTestsResult | None:
+    run = getattr(report, "hidden", None) if report is not None else None
+    if run is None:
+        return None
+    return TaskTestsResult(
+        status=str(getattr(run, "status", "")),
+        total=int(getattr(run, "total", 0) or 0),
+        passed=int(getattr(run, "passed", 0) or 0),
+        failed_names=list(getattr(run, "failed_names", []))[:10],
+        detail=str(getattr(run, "detail", "") or ""),
+    )
+
+
+def _challenge_results(
+        challenge: ChallengeVerdict | None,
+        code: str = "",
+) -> list[ChallengeResult]:
     if challenge is None or not challenge.has_objections:
         return []
     severity = challenge.severity if challenge.severity in {"low", "medium", "high"} else "medium"
@@ -888,7 +917,9 @@ def _challenge_results(challenge: ChallengeVerdict | None) -> list[ChallengeResu
         if key in seen:
             continue
         seen.add(key)
-        items.append(ChallengeResult(text=text, severity=severity))
+        items.append(
+            ChallengeResult(text=text, severity=severity, line=anchor_line(text, code))
+        )
         if len(items) >= 6:
             break
     return items

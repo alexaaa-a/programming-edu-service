@@ -84,7 +84,11 @@ class ProjectDB(ProjectDBInterface):
         sprints = []
         for s in d.get("sprints", []):
             tasks = [
-                ProjectTaskDTO(title=t["title"], description=t["description"])
+                ProjectTaskDTO(
+                    title=t["title"],
+                    description=t["description"],
+                    tests=str(t.get("tests") or ""),
+                )
                 for t in s.get("tasks", [])
             ]
             sprints.append(

@@ -21,6 +21,9 @@ class SubmissionsDBInterface(Protocol):
     async def get_all_user_submissions(self, user_id: int) -> list[SubmissionDTO] | None:
         raise NotImplementedError
 
+    async def get_reviewed_submissions(self, limit: int = 1000) -> list[SubmissionDTO]:
+        return []
+
     @abstractmethod
     async def update_submission_with_review(
             self,

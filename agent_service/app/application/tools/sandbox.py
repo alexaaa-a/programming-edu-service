@@ -136,6 +136,24 @@ async def _run_in_temp(
         tool: str,
         fail_prefix: str,
 ) -> tuple[ToolFinding | None, int | None]:
+    finding, returncode, _ = await run_files(
+        files={filename: code},
+        argv=argv,
+        timeout=timeout,
+        tool=tool,
+        fail_prefix=fail_prefix,
+    )
+    return finding, returncode
+
+
+async def run_files(
+        files: dict[str, str],
+        argv: list[str],
+        timeout: float,
+        tool: str,
+        fail_prefix: str,
+        collect: str | None = None,
+) -> tuple[ToolFinding | None, int | None, str | None]:
     env = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "PYTHONDONTWRITEBYTECODE": "1",
@@ -151,8 +169,8 @@ async def _run_in_temp(
         "AWS_ACCESS_KEY_ID": "",
     }
     with tempfile.TemporaryDirectory(prefix="desk-sandbox-") as tmp:
-        path = Path(tmp) / filename
-        path.write_text(code, encoding="utf-8")
+        for name, text in files.items():
+            (Path(tmp) / name).write_text(text, encoding="utf-8")
         try:
             kwargs: dict = {
                 "cwd": tmp,
@@ -168,7 +186,7 @@ async def _run_in_temp(
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.communicate()
-                return ToolFinding(tool, "error", f"{fail_prefix}: лимит {timeout:.0f}с"), None
+                return ToolFinding(tool, "error", f"{fail_prefix}: лимит {timeout:.0f}с"), None, None
         except FileNotFoundError as exc:
             missing = argv[0] if argv else "binary"
             return (
@@ -178,12 +196,22 @@ async def _run_in_temp(
                     f"{fail_prefix}: среда недоступна ({missing} не найден: {exc})",
                 ),
                 None,
+                None,
             )
+        collected: str | None = None
+        if collect is not None:
+            report = Path(tmp) / collect
+            if report.exists():
+                collected = report.read_text(encoding="utf-8", errors="replace")
         if proc.returncode == 0:
-            return None, 0
+            return None, 0, collected
         detail = (stderr or stdout).decode("utf-8", errors="replace").strip()
         detail = _trim(detail, 400)
-        return ToolFinding(tool, "error", f"{fail_prefix}: {detail or 'ненулевой код выхода'}"), proc.returncode
+        return (
+            ToolFinding(tool, "error", f"{fail_prefix}: {detail or 'ненулевой код выхода'}"),
+            proc.returncode,
+            collected,
+        )
 
 
 def _trim(text: str, limit: int) -> str:

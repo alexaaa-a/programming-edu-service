@@ -18,11 +18,13 @@ import {
   getMyAdminRole,
   getTaskSubmissions,
   spendBonus,
+  runTaskTests,
   submitCode,
   submitPeerReview,
   updateTaskStatus,
 } from "@/lib/api";
 import { startBackgroundReviewPoll } from "@/lib/background-review";
+import { reviewMarks, unanchoredCount } from "@/lib/review-marks";
 import type { AdminRole, BoardResponse, Career, Submission, TaskResponse, TaskStatus, UserShow } from "@/lib/types";
 import {
   SPEND_PRICE,
@@ -32,8 +34,10 @@ import {
   isNightIncident,
   hasUnusedEmma,
   presentTask,
-  taskIsOpen,
+  taskLock,
 } from "@/lib/career-rights";
+import { TestRunPanel } from "../components/workspace/TestRunPanel";
+import type { TaskTestRun } from "@/lib/api";
 import { scoreOutOfTen } from "@/lib/score";
 import { countedRounds, evaluateCloseGate, MAX_ROUNDS } from "@/lib/close-gate";
 
@@ -118,7 +122,13 @@ export default function TaskPage() {
   const [language, setLanguage] = useState<EditorLang>("python");
   const [submitting, setSubmitting] = useState(false);
   const [buying, setBuying] = useState<string | null>(null);
+  const [testRun, setTestRun] = useState<TaskTestRun | null>(null);
+  const [testsRunning, setTestsRunning] = useState(false);
+  const [testsAvailable, setTestsAvailable] = useState(true);
+  const [testsError, setTestsError] = useState<string | null>(null);
   const [advancing, setAdvancing] = useState(false);
+  const [comparing, setComparing] = useState(false);
+  const [focusLine, setFocusLine] = useState<number | null>(null);
 
   const idNum = taskId ? Number(taskId) : NaN;
 
@@ -213,13 +223,48 @@ export default function TaskPage() {
     [submissions, maxRounds],
   );
   const canClose = task?.status === "review" && closeDecision.allowed;
+
+  // Замечания привязаны к строкам отправленного кода. Как только студент начал
+  // править, подсветка уехала бы вместе со строками — поэтому она гаснет.
+  const marksFresh = Boolean(latest?.review) && code === (latest?.code ?? "");
+  const marks = useMemo(
+    () => (marksFresh ? reviewMarks(latest?.review) : []),
+    [marksFresh, latest],
+  );
+  const unanchored = marksFresh ? unanchoredCount(latest?.review) : 0;
+  // Прошлая попытка: с ней сравнивается то, что сейчас в редакторе.
+  const previousCode = useMemo(() => {
+    const reviewed = submissions.filter((item) => item.submission_id !== latest?.submission_id);
+    return reviewed.length > 0 ? reviewed[0].code : null;
+  }, [submissions, latest]);
   const rights = careerRights(career?.grade, career?.appeal_used);
   const peerReview = task?.title === "Ревью стажёра";
-  const locked = Boolean(task && board && !taskIsOpen(task, board, rights.pickFirstTask));
+  const lock = task && board ? taskLock(task, board, rights.pickFirstTask) : null;
+  const locked = Boolean(lock);
   const brief = task
     ? presentTask(task.description, career?.grade, submissions.length > 0, criteriaOpen)
     : null;
   const emmaReady = hasUnusedEmma(career?.purchases);
+
+  const handleRunTests = async () => {
+    if (!task) return;
+    setTestsRunning(true);
+    setTestsError(null);
+    try {
+      const result = await runTaskTests(task.task_id, code);
+      if (result === null) {
+        setTestsAvailable(false);
+        setTestRun(null);
+        return;
+      }
+      setTestRun(result);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Не удалось прогнать тесты";
+      setTestsError(message);
+    } finally {
+      setTestsRunning(false);
+    }
+  };
 
   const handleBuy = async (item: "extra_round" | "emma_session" | "early_criteria") => {
     if (!task) return;
@@ -433,18 +478,29 @@ export default function TaskPage() {
           />
         )}
 
-        {!loading && task && locked && (
+        {!loading && task && lock && (
           <EmptyState
-            title="Сначала текущая задача"
-            body={
-              rights.pickFirstTask
-                ? "Параллельно доска не ведётся. Закрой ту, что уже в работе."
-                : "До Junior+ задачи идут по очереди. Выбрать, с какой начать, можно позже."
-            }
+            kicker="Пока закрыта"
+            title={lock.reason}
+            body={lock.why}
             action={
-              <PrimaryButton className="w-auto" onClick={() => navigate("/dashboard")}>
-                На дашборд
-              </PrimaryButton>
+              <div className="flex flex-wrap justify-center gap-2">
+                {lock.openTask && (
+                  <PrimaryButton
+                    className="w-auto min-w-[200px]"
+                    onClick={() => navigate(`/task/${lock.openTask!.task_id}`)}
+                  >
+                    {lock.openLabel}
+                  </PrimaryButton>
+                )}
+                <button
+                  type="button"
+                  onClick={() => navigate("/dashboard")}
+                  className="h-12 rounded-[10px] border border-border px-4 text-sm text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                >
+                  На дашборд
+                </button>
+              </div>
             }
           />
         )}
@@ -633,7 +689,24 @@ export default function TaskPage() {
                             >
                               {item.passed ? "✓" : "✗"}
                             </span>
-                            <span className="line-clamp-2 text-muted-foreground">{item.text}</span>
+                            {marksFresh && item.line ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setComparing(false);
+                                  setFocusLine(item.line ?? null);
+                                }}
+                                className="line-clamp-2 text-left text-muted-foreground hover:text-foreground"
+                                title={`Строка ${item.line}`}
+                              >
+                                {item.text}
+                                <span className="ml-1 font-mono text-[10px] text-primary">
+                                  :{item.line}
+                                </span>
+                              </button>
+                            ) : (
+                              <span className="line-clamp-2 text-muted-foreground">{item.text}</span>
+                            )}
                           </li>
                         ))}
                       </ul>
@@ -740,10 +813,44 @@ export default function TaskPage() {
                 <>
                   <CodeEditor
                     value={code}
-                    onChange={setCode}
+                    onChange={(next) => {
+                      setCode(next);
+                      setComparing(false);
+                    }}
                     language={language}
                     onLanguageChange={setLanguage}
                     readOnly={codeLocked}
+                    marks={marks}
+                    compareWith={comparing ? previousCode : null}
+                    focusLine={focusLine}
+                  />
+                  {(marks.length > 0 || previousCode) && (
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border px-4 py-2 text-xs text-muted-foreground">
+                      {marks.length > 0 && (
+                        <span>
+                          {marks.length} замечани
+                          {marks.length === 1 ? "е" : marks.length < 5 ? "я" : "й"} в коде
+                          {unanchored > 0 ? ` · ещё ${unanchored} без строки, в отчёте` : ""}
+                        </span>
+                      )}
+                      {previousCode && (
+                        <button
+                          type="button"
+                          onClick={() => setComparing((value) => !value)}
+                          className="text-primary hover:underline"
+                        >
+                          {comparing ? "Вернуться к коду" : "Сравнить с прошлой попыткой"}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <TestRunPanel
+                    run={testRun}
+                    running={testsRunning}
+                    available={testsAvailable}
+                    error={testsError}
+                    disabled={codeLocked || !code.trim()}
+                    onRun={() => void handleRunTests()}
                   />
                   <div className="flex shrink-0 flex-wrap items-center gap-3 border-t border-border px-4 py-3">
                     <PrimaryButton

@@ -140,15 +140,56 @@ export function isNightIncident(title: string): boolean {
 }
 
 export function taskIsOpen(task: TaskResponse, board: BoardResponse, pickFirst: boolean): boolean {
-  if (isNightIncident(task.title)) return true;
-  if (task.status !== "todo") return true;
-  const locking = [...board.in_progress, ...board.review].filter(
-    (item) => !isNightIncident(item.title),
-  );
-  if (locking.length > 0) return false;
-  if (pickFirst) return true;
+  return taskLock(task, board, pickFirst) === null;
+}
+
+export interface TaskLock {
+  reason: string;
+  why: string;
+  openTask: TaskResponse | null;
+  openLabel: string;
+}
+
+export function taskLock(
+  task: TaskResponse,
+  board: BoardResponse,
+  pickFirst: boolean,
+): TaskLock | null {
+  if (isNightIncident(task.title)) return null;
+  if (task.status !== "todo") return null;
+
+  const inProgress = board.in_progress.filter((item) => !isNightIncident(item.title));
+  const onReview = board.review.filter((item) => !isNightIncident(item.title));
+
+  if (inProgress.length > 0) {
+    const busy = inProgress[0];
+    return {
+      reason: `Сейчас в работе «${busy.title}»`,
+      why: "Две задачи сразу размывают фокус: доска ведёт по одной.",
+      openTask: busy,
+      openLabel: "Вернуться к ней",
+    };
+  }
+  if (onReview.length > 0) {
+    const waiting = onReview[0];
+    return {
+      reason: `«${waiting.title}» ждёт ревью команды`,
+      why: "Отчёт придёт через минуту-другую. Следующая задача откроется после него.",
+      openTask: waiting,
+      openLabel: "Открыть её",
+    };
+  }
+  if (pickFirst) return null;
+
   const queue = board.todo.filter((item) => !isNightIncident(item.title));
-  return queue[0]?.task_id === task.task_id;
+  const head = queue[0] ?? null;
+  if (head?.task_id === task.task_id) return null;
+  return {
+    reason: head ? `Сейчас открыта «${head.title}»` : "Эта задача ещё не в очереди",
+    why: "Порядок задач в спринте — это программа обучения. Свободный выбор открывается на Junior+.",
+    openTask: head,
+    openLabel: "Открыть её",
+  };
 }
 
 const MENTION = /@(?:Сара|Майк|Эмма|Джон)/gi;

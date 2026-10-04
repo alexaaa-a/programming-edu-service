@@ -11,6 +11,7 @@ from .review_pipeline import ReviewPipelineProviders
 from .career_puzzle import CareerPuzzleProviders
 from .chat_pipeline import ChatPipelineProviders
 from .health import HealthProviders
+from .templates import TemplateProviders
 
 
 all_providers = [
@@ -25,6 +26,7 @@ all_providers = [
     *HealthProviders,
     *ChatPipelineProviders,
     *CareerPuzzleProviders,
+    *TemplateProviders,
     *ReviewPipelineProviders,
     *KafkaProviders,
 ]

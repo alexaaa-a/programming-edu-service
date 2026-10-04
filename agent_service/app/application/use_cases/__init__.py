@@ -11,6 +11,9 @@ from agent_service.app.application.use_cases.compare_review_evaluation_runs impo
     CompareReviewEvaluationRunsUseCase,
     CompareReviewEvaluationRunsResult,
 )
+from agent_service.app.application.use_cases.generate_project_template import (
+    GenerateProjectTemplateUseCase,
+)
 from agent_service.app.application.use_cases.evaluate_rag_search import (
     EvaluateRagSearchUseCase,
     EvaluateRagSearchResult,
@@ -26,5 +29,6 @@ __all__ = [
     "CompareReviewEvaluationRunsResult",
     "EvaluateRagSearchUseCase",
     "EvaluateRagSearchResult",
+    "GenerateProjectTemplateUseCase",
 ]
 

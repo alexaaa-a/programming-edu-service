@@ -123,6 +123,7 @@ class UpdateTaskStatusUseCase:
                 status=new_status,
                 task_description=task.description,
                 round_limit=await self._round_limit(user_id, task_id),
+                title=task.title,
             )
         except Exception:
             _logger.exception(
@@ -178,7 +179,6 @@ class UpdateTaskStatusUseCase:
             score: float | None,
             attempts: int,
     ) -> tuple[str, ...]:
-        """Счётчики и бейджи за закрытие. Сбой здесь не отменяет закрытие."""
         if self.career_db is None:
             return ()
         try:
@@ -210,7 +210,6 @@ class UpdateTaskStatusUseCase:
             user_id: int,
             authorization: str | None,
     ) -> tuple[Any, UpdateTaskStatusResult | None]:
-        """Решение о закрытии плюс лучший балл и число сдач — для бейджей."""
         snapshots = await self.review_gateway.get_task_reviews(
             task_id,
             authorization or "",

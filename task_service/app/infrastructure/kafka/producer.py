@@ -1,5 +1,6 @@
 import json
 import logging
+from typing import Any
 
 from aiokafka import AIOKafkaProducer
 
@@ -56,16 +57,23 @@ class TaskEventProducer:
             user_id: int,
             status: str,
             task_description: str,
+            title: str | None = None,
+            order: int | None = None,
+            tests: str | None = None,
     ) -> None:
-        await self._send(
-            self._settings.kafka_settings.topic_task_created,
-            {
-                "task_id": task_id,
-                "user_id": user_id,
-                "status": status,
-                "task_description": task_description,
-            },
-        )
+        payload: dict[str, Any] = {
+            "task_id": task_id,
+            "user_id": user_id,
+            "status": status,
+            "task_description": task_description,
+        }
+        if title is not None:
+            payload["title"] = title
+        if order is not None:
+            payload["order"] = order
+        if tests:
+            payload["tests"] = tests
+        await self._send(self._settings.kafka_settings.topic_task_created, payload)
 
     async def produce_task_status_updated(
             self,
@@ -74,8 +82,9 @@ class TaskEventProducer:
             status: str,
             task_description: str,
             round_limit: int | None = None,
+            title: str | None = None,
     ) -> None:
-        payload = {
+        payload: dict[str, Any] = {
             "task_id": task_id,
             "user_id": user_id,
             "status": status,
@@ -83,6 +92,8 @@ class TaskEventProducer:
         }
         if round_limit is not None:
             payload["round_limit"] = round_limit
+        if title is not None:
+            payload["title"] = title
         await self._send(
             self._settings.kafka_settings.topic_task_status_updated,
             payload,

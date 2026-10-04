@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { useRequireAuth } from "../hooks/useRequireAuth";
-import { getMe, getMyAdminRole, getMySubmissionStats } from "@/lib/api";
-import type { AdminRole, UserSubmissionStats } from "@/lib/types";
+import { getMe, getMyAdminRole, getMySubmissionStats, getMyTrajectory } from "@/lib/api";
+import type { AdminRole, UserSubmissionStats, UserTrajectory } from "@/lib/types";
 import { WorkspaceShell } from "../components/workspace/WorkspaceShell";
+import { TrajectoryMeters } from "../components/workspace/TrajectoryMeters";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingState } from "../components/LoadingState";
 import { PrimaryButton } from "../components/onboarding/Field";
@@ -40,6 +41,7 @@ export default function Statistics() {
   const [userName, setUserName] = useState<string | undefined>();
   const [adminRole, setAdminRole] = useState<AdminRole>("user");
   const [streak, setStreak] = useState(readStreak);
+  const [trajectory, setTrajectory] = useState<UserTrajectory | null>(null);
 
   useEffect(() => {
     setStreak(touchStreak());
@@ -56,6 +58,11 @@ export default function Statistics() {
         setStats(data);
         setUserName(me.name);
         setAdminRole(role.role);
+        try {
+          setTrajectory(await getMyTrajectory());
+        } catch {
+          setTrajectory(null);
+        }
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Не удалось загрузить статистику");
         setStats(null);
@@ -159,6 +166,38 @@ export default function Statistics() {
                   <Bar label="Ждёт команду" value={pendingPct} count={stats.pending_submissions} />
                   <Bar label="Сбой проверки" value={failedPct} count={stats.failed_submissions} />
                 </div>
+              </section>
+            )}
+
+            {trajectory && (
+              <section className="mt-6 rounded-[10px] border border-border bg-card p-6 sm:p-8">
+                <h2 className="text-sm font-medium">Модель траектории</h2>
+                <p className="mt-2 max-w-xl text-[12px] leading-relaxed text-muted-foreground">
+                  Четыре числа, по которым траектория решает, что предложить дальше. На дашборде
+                  их нет намеренно: там нужен следующий шаг, а не приборная панель.
+                </p>
+                <TrajectoryMeters className="mt-6" trajectory={trajectory} />
+                <dl className="mt-6 space-y-2 text-[12px] leading-relaxed text-muted-foreground">
+                  <div>
+                    <dt className="inline font-medium text-foreground">Мастерство. </dt>
+                    <dd className="inline">Средняя вероятность, что навык освоен, по всем встреченным навыкам.</dd>
+                  </div>
+                  <div>
+                    <dt className="inline font-medium text-foreground">Трудность. </dt>
+                    <dd className="inline">Насколько текущая задача выше твоего уровня: 1 минус ожидаемый успех.</dd>
+                  </div>
+                  <div>
+                    <dt className="inline font-medium text-foreground">Темп. </dt>
+                    <dd className="inline">Как часто ты замыкаешь круг «сдал — получил ревью — поправил».</dd>
+                  </div>
+                  <div>
+                    <dt className="inline font-medium text-foreground">Готовность. </dt>
+                    <dd className="inline">
+                      Ожидаемая доля критериев, которые пройдут в задачах спринта. Порог для
+                      следующего спринта — 72%.
+                    </dd>
+                  </div>
+                </dl>
               </section>
             )}
 

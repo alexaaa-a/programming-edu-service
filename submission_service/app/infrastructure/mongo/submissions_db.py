@@ -13,6 +13,7 @@ from submission_service.app.application.dto.submission import (
     ReviewDTO,
     SkillShareDTO,
     SubmissionDTO,
+    TaskTestsDTO,
 )
 from submission_service.app.config import Settings
 
@@ -81,6 +82,15 @@ class SubmissionsDB(SubmissionsDBInterface):
         except Exception:
             self.logger.exception("Exception when getting all user submissions")
             return None
+
+    async def get_reviewed_submissions(self, limit: int = 1000) -> list[SubmissionDTO]:
+        try:
+            cursor = self.db.find({"status": "reviewed"}).limit(max(1, min(int(limit), 5000)))
+            docs = await cursor.to_list(None)
+            return [self._doc_to_template(doc) for doc in docs]
+        except Exception:
+            self.logger.exception("Exception when reading reviewed submissions")
+            return []
 
     async def update_submission_with_review(
             self,
@@ -158,6 +168,7 @@ class SubmissionsDB(SubmissionsDBInterface):
                             passed=bool(item.get("passed")),
                             note=str(item.get("note") or "").strip(),
                             skills=_skills_from_doc(item.get("skills")),
+                            line=_line_from_doc(item.get("line")),
                         )
                     )
             raw_challenges = review.get("challenges") or []
@@ -177,7 +188,13 @@ class SubmissionsDB(SubmissionsDBInterface):
                     severity = str(item.get("severity") or "medium").strip().lower()
                     if severity not in {"low", "medium", "high"}:
                         severity = "medium"
-                    challenges.append(ChallengeResultDTO(text=text, severity=severity))
+                    challenges.append(
+                        ChallengeResultDTO(
+                            text=text,
+                            severity=severity,
+                            line=_line_from_doc(item.get("line")),
+                        )
+                    )
             raw_path = review.get("agent_path") or []
             agent_path: list[PathStepResultDTO] = []
             if isinstance(raw_path, list):
@@ -202,6 +219,7 @@ class SubmissionsDB(SubmissionsDBInterface):
                 criteria=criteria,
                 challenges=challenges,
                 agent_path=agent_path,
+                tests=_tests_from_doc(review.get("tests")),
             )
 
         d["review"] = review
@@ -223,3 +241,29 @@ def _skills_from_doc(raw: Any) -> list[SkillShareDTO]:
         if skill_id and share > 0.0:
             shares.append(SkillShareDTO(skill_id=skill_id, share=share))
     return shares
+
+
+def _line_from_doc(raw: Any) -> int | None:
+    if isinstance(raw, bool) or raw is None:
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if 1 <= value <= 10_000 else None
+
+
+def _tests_from_doc(raw: Any) -> TaskTestsDTO | None:
+    if not isinstance(raw, dict):
+        return None
+    status = str(raw.get("status") or "").strip()
+    if not status:
+        return None
+    names = raw.get("failed_names")
+    return TaskTestsDTO(
+        status=status,
+        total=int(raw.get("total") or 0),
+        passed=int(raw.get("passed") or 0),
+        failed_names=[str(item) for item in names][:10] if isinstance(names, list) else [],
+        detail=str(raw.get("detail") or ""),
+    )

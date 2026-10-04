@@ -14,6 +14,9 @@ class TaskCacheInterface(Protocol):
             status: str,
             task_description: str | None = None,
             round_limit: int | None = None,
+            title: str | None = None,
+            order: int | None = None,
+            tests: str | None = None,
     ) -> bool:
         raise NotImplementedError
 
@@ -30,6 +33,9 @@ class TaskCacheInterface(Protocol):
         raise NotImplementedError
 
     async def get_round_limit(self, task_id: int, user_id: int) -> int | None:
+        return None
+
+    async def get_task_tests(self, task_id: int, user_id: int) -> str | None:
         return None
 
     async def list_user_tasks(self, user_id: int) -> list[TaskInfo] | None:

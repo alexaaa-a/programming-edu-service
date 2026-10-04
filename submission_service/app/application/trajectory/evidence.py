@@ -1,7 +1,9 @@
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Sequence
 
 from submission_service.app.application.dto.submission import SubmissionDTO
+from submission_service.app.application.drills.models import DRILL_WEIGHT, DrillRun
 from submission_service.app.application.trajectory.knowledge import Observation, Opportunity
 from submission_service.app.application.trajectory.skills import (
     FALLBACK_SKILL,
@@ -127,3 +129,33 @@ def build_opportunities(
             )
         )
     return result
+
+
+def drill_opportunities(runs: Sequence[DrillRun]) -> list[Opportunity]:
+    opportunities: list[Opportunity] = []
+    for index, run in enumerate(sorted(runs, key=lambda item: _as_utc(item.at)), start=1):
+        if run.total <= 0:
+            continue
+        opportunities.append(
+            Opportunity(
+                at=_as_utc(run.at),
+                task_id=0,
+                submission_id=-index,
+                observations=(
+                    Observation(
+                        skill_id=run.skill_id,
+                        outcome=run.outcome,
+                        weight=DRILL_WEIGHT,
+                        source="drill",
+                        text=f"Упражнение: {run.passed}/{run.total}",
+                    ),
+                ),
+            )
+        )
+    return opportunities
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)

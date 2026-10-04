@@ -100,6 +100,7 @@ class SubmissionReviewProducer(SubmissionReviewProducerProtocol):
                     "text": item.text,
                     "passed": item.passed,
                     "note": item.note,
+                    "line": item.line,
                 }
                 for item in result.review.criteria
             ],
@@ -107,6 +108,7 @@ class SubmissionReviewProducer(SubmissionReviewProducerProtocol):
                 {
                     "text": item.text,
                     "severity": item.severity,
+                    "line": item.line,
                 }
                 for item in result.review.challenges
             ],
@@ -120,6 +122,15 @@ class SubmissionReviewProducer(SubmissionReviewProducerProtocol):
                 for item in result.review.agent_path
             ],
         }
+        tests = getattr(result.review, "tests", None)
+        if tests is not None:
+            event["tests"] = {
+                "status": tests.status,
+                "total": tests.total,
+                "passed": tests.passed,
+                "failed_names": list(tests.failed_names),
+                "detail": tests.detail,
+            }
         started_at = time.perf_counter()
         self._logger.info(
             "kafka.event.producing topic=%s submission_id=%s",

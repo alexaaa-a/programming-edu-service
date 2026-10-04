@@ -30,6 +30,7 @@ class ReviewSubmissionUseCaseProtocol(Protocol):
             user_id: str | None = None,
             attempt: int | None = None,
             previous_feedback: str | None = None,
+            hidden_tests: str | None = None,
     ) -> ReviewSubmissionResult: ...
 
 
@@ -98,6 +99,7 @@ class SubmissionReviewConsumer:
         user_id = _optional_str(payload.get("user_id"))
         attempt = _optional_int(payload.get("attempt"))
         previous_feedback = _optional_str(payload.get("previous_feedback"))
+        hidden_tests = _optional_str(payload.get("hidden_tests"))
         if submission_id is None or code is None or task_description is None:
             self._logger.warning(
                 "Missing fields in message on topic=%s, payload=%r",
@@ -131,6 +133,7 @@ class SubmissionReviewConsumer:
                         user_id=user_id,
                         attempt=attempt,
                         previous_feedback=previous_feedback,
+                        hidden_tests=hidden_tests,
                     )
                 await self._producer.produce_submission_reviewed(result)
             except Exception:

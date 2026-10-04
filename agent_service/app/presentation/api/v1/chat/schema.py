@@ -61,3 +61,18 @@ class ChatResponse(BaseModel):
     mode: str = "solo"
     advisors: list[str] = Field(default_factory=list)
     agent_path: list[PathStep] = Field(default_factory=list)
+
+
+class ChatNudgeRequest(BaseModel):
+    session_id: str = ""
+    task_title: str | None = None
+
+
+class ChatNudgeResponse(BaseModel):
+    sent: bool = False
+    message: str = ""
+    speaker_id: str = ""
+    speaker_name: str = ""
+    speaker_role: str = ""
+    kind: str = ""
+    task_id: int | None = None

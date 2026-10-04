@@ -23,11 +23,21 @@ RecommendationKind = Literal["fix", "learn", "review", "practice", "next_task", 
 OPEN_STATUSES = ("in_progress", "todo")
 
 
+NIGHT_INCIDENT_TITLE = "Ночной инцидент"
+BUSY_STATUSES = ("in_progress", "review")
+
+
 @dataclass(frozen=True, slots=True)
 class TaskInfo:
     task_id: int
     status: str
     description: str = ""
+    title: str = ""
+    order: int | None = None
+
+    @property
+    def is_night_incident(self) -> bool:
+        return self.title.strip() == NIGHT_INCIDENT_TITLE
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +75,7 @@ class NextTask:
     predicted_success: float
     skills: list[str]
     in_progress: bool
+    only_choice: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,14 +125,43 @@ def realized_gain(profile: dict[str, float], knowledge: KnowledgeState) -> float
     return learning_gain(profile, knowledge) * expected_success(profile, knowledge)
 
 
+def available_tasks(
+        tasks: Sequence[TaskInfo] | None,
+        can_pick: bool = False,
+) -> list[TaskInfo]:
+    items = list(tasks or [])
+    started = [
+        task
+        for task in items
+        if (task.status or "").lower() in BUSY_STATUSES and not task.is_night_incident
+    ]
+    incident = [
+        task
+        for task in items
+        if task.is_night_incident and (task.status or "").lower() in OPEN_STATUSES
+    ]
+    if started:
+        return [task for task in started if (task.status or "").lower() == "in_progress"] + incident
+
+    queue = [
+        task
+        for task in items
+        if (task.status or "").lower() == "todo" and not task.is_night_incident
+    ]
+    if can_pick:
+        return queue + incident
+    return queue[:1] + incident
+
+
 def choose_next_task(
         tasks: Sequence[TaskInfo] | None,
         knowledge: KnowledgeState,
         current_task_id: int | None,
+        can_pick: bool = False,
 ) -> NextTask | None:
     candidates = [
         task
-        for task in (tasks or [])
+        for task in available_tasks(tasks, can_pick=can_pick)
         if task.task_id != current_task_id and (task.status or "").lower() in OPEN_STATUSES
     ]
     if not candidates:
@@ -140,6 +180,7 @@ def choose_next_task(
             predicted_success=success,
             skills=[skill_id for skill_id, _ in ranked[:3]],
             in_progress=bool(started),
+            only_choice=len(pool) == 1,
         )
         if best is None or option.utility > best.utility + 1e-12:
             best = option
@@ -321,21 +362,30 @@ def build_recommendations(
 
     if next_task is not None:
         names = [SKILL_BY_ID[sid].title for sid in next_task.skills if sid in SKILL_BY_ID]
+        trains = ", ".join(names[:2]) or "логику задачи"
         if next_task.in_progress:
+            title = "Доведи начатую задачу"
             detail = (
-                "Она уже в работе — доведи её до ревью, прежде чем брать новую: "
+                "Она уже в работе. Доведи её до ревью, прежде чем брать новую: "
                 "незавершённые задачи размывают фокус."
             )
-        else:
+        elif next_task.only_choice:
+            title = "Следующая задача"
             detail = (
-                f"Тренирует: {', '.join(names[:2]) or 'логику задачи'}. "
+                f"Это следующая открытая задача на доске. Тренирует: {trains}. "
+                f"Ожидаемый успех {_pct(next_task.predicted_success)}%."
+            )
+        else:
+            title = "Следующая задача"
+            detail = (
+                f"Тренирует: {trains}. "
                 f"Ожидаемый успех {_pct(next_task.predicted_success)}% — "
                 "среди открытых задач она даст наибольший прирост навыков."
             )
         items.append(
             Recommendation(
                 kind="next_task",
-                title="Следующая задача",
+                title=title,
                 detail=detail,
                 task_id=next_task.task_id,
                 skill_id=next_task.skills[0] if next_task.skills else None,

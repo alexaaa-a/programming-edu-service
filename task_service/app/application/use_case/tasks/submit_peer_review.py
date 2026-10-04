@@ -85,6 +85,7 @@ class SubmitPeerReviewUseCase:
                 user_id=user_id,
                 status="done",
                 task_description=task.description,
+                title=task.title,
             )
         except Exception:
             _logger.exception("peer review produce failed task_id=%s", task_id)
@@ -124,7 +125,6 @@ class SubmitPeerReviewUseCase:
             quality: str,
             found: bool,
     ) -> tuple[str, ...]:
-        """Ревью стажёра идёт в те же счётчики, что и обычное закрытие."""
         if self.career_db is None:
             return ()
         try:

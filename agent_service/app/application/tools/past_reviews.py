@@ -184,7 +184,31 @@ def _profile_metadata(profile: StudentProfile) -> dict[str, str]:
     return meta
 
 
+RED_TESTS_CEILING = 7
+RED_TESTS_FLOOR = 2
+
+
+def hidden_tests_cap(run: object | None) -> int | None:
+    status = getattr(run, "status", None)
+    if status == "timeout":
+        return 3
+    if status == "error":
+        return RED_TESTS_FLOOR
+    if status != "failed":
+        return None
+    total = int(getattr(run, "total", 0) or 0)
+    if total <= 0:
+        return None
+    ratio = float(getattr(run, "ratio", 0.0))
+    return max(RED_TESTS_FLOOR, min(RED_TESTS_CEILING, int(1 + 9 * ratio)))
+
+
 def score_cap_from_report(report: ToolReport) -> int | None:
+    caps = [cap for cap in (_base_cap(report), hidden_tests_cap(report.hidden)) if cap is not None]
+    return min(caps) if caps else None
+
+
+def _base_cap(report: ToolReport) -> int | None:
     if not report.syntax_ok or not report.compile_ok:
         return 2
     if report.tests_run and report.tests_passed is False:

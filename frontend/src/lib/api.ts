@@ -14,6 +14,11 @@ import type {
   ChatHistoryItem,
   ChatResponse,
   CreateProjectTemplatePayload,
+  DrillOffer,
+  DrillRunResult,
+  GeneratedSprint,
+  GenerateSprintPayload,
+  TeamNudge,
   MyAdminRole,
   Sprint,
   Submission,
@@ -243,6 +248,55 @@ export async function submitPeerReview(
   return { close_quality: data.close_quality, emma: data.emma };
 }
 
+export interface TaskTestRun {
+  status: "passed" | "failed" | "error" | "timeout" | string;
+  total: number;
+  passed: number;
+  failed: number;
+  failures: { name: string; message: string }[];
+  detail: string;
+}
+
+export async function runTaskTests(
+  taskId: number,
+  code: string,
+): Promise<TaskTestRun | null> {
+  const res = await apiFetch("/api/agents/v1/run-tests", {
+    method: "POST",
+    json: { task_id: taskId, code },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(await parseApiError(res));
+  return res.json() as Promise<TaskTestRun>;
+}
+
+export async function getMyDrill(): Promise<DrillOffer | null> {
+  const res = await apiFetch("/api/submission/v1/submissions/me/drill");
+  if (res.status === 404 || res.status === 204) return null;
+  if (!res.ok) throw new Error(await parseApiError(res));
+  const data = (await res.json()) as DrillOffer | null;
+  return data && data.drill_id ? data : null;
+}
+
+export async function runDrill(drillId: string, code: string): Promise<DrillRunResult> {
+  const res = await apiFetch("/api/agents/v1/run-drill", {
+    method: "POST",
+    json: { drill_id: drillId, code },
+  });
+  if (!res.ok) throw new Error(await parseApiError(res));
+  return res.json() as Promise<DrillRunResult>;
+}
+
+export async function pingTeamNudge(taskTitle?: string | null): Promise<TeamNudge | null> {
+  const res = await apiFetch("/api/agents/v1/chat/nudge", {
+    method: "POST",
+    json: { session_id: "", task_title: taskTitle ?? null },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as TeamNudge;
+  return data.sent ? data : null;
+}
+
 export async function submitCode(taskId: number, code: string): Promise<number> {
   const res = await apiFetch("/api/submission/v1/submissions", {
     method: "POST",
@@ -269,12 +323,17 @@ export async function getMySubmissionStats(): Promise<UserSubmissionStats> {
   return getJson<UserSubmissionStats>("/api/submission/v1/submissions/me/stats");
 }
 
-export async function getMyTrajectory(taskId?: number | null): Promise<UserTrajectory> {
-  const query =
-    taskId != null && Number.isFinite(taskId)
-      ? `?task_id=${encodeURIComponent(String(taskId))}`
-      : "";
-  return getJson<UserTrajectory>(`/api/submission/v1/submissions/me/trajectory${query}`);
+export async function getMyTrajectory(
+  taskId?: number | null,
+  canPickTask = false,
+): Promise<UserTrajectory> {
+  const params = new URLSearchParams();
+  if (taskId != null && Number.isFinite(taskId)) params.set("task_id", String(taskId));
+  if (canPickTask) params.set("can_pick_task", "true");
+  const query = params.toString();
+  return getJson<UserTrajectory>(
+    `/api/submission/v1/submissions/me/trajectory${query ? `?${query}` : ""}`,
+  );
 }
 
 export async function completeSprint(force = false): Promise<"letter" | "demo" | "closed"> {
@@ -338,8 +397,6 @@ export async function spendBonus(item: string, taskId?: number): Promise<Career>
     json: { item, task_id: taskId ?? null },
   });
   if (!res.ok) throw new Error(await parseApiError(res));
-  // Покупка не присылает отдельный список новых бейджей: «Вложился в себя»
-  // появится на панели целей при следующей загрузке карьеры.
   return res.json() as Promise<Career>;
 }
 
@@ -426,6 +483,17 @@ export async function removeAdmin(userId: number): Promise<void> {
     method: "DELETE",
   });
   if (!res.ok) throw new Error(await parseApiError(res));
+}
+
+export async function generateTemplateSprint(
+  payload: GenerateSprintPayload,
+): Promise<GeneratedSprint> {
+  const res = await apiFetch("/api/agents/v1/templates/sprint", {
+    method: "POST",
+    json: payload,
+  });
+  if (!res.ok) throw new Error(await parseApiError(res));
+  return res.json() as Promise<GeneratedSprint>;
 }
 
 export async function createProjectTemplate(

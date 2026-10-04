@@ -87,6 +87,7 @@ async def run_tools_node(state: ReviewState, runtime: Runtime[ReviewGraphRuntime
         path=_path(state),
         logger=ctx.logger,
         trace_id=ctx.trace_id,
+        hidden_tests=state.get("hidden_tests"),
     )
     return {"tool_report": report, "tool_facts": tool_facts, "path": path}
 
@@ -231,5 +232,6 @@ async def run_finalize_node(state: ReviewState, runtime: Runtime[ReviewGraphRunt
         user_id=state.get("user_id"),
         logger=ctx.logger,
         trace_id=ctx.trace_id,
+        code=str(state.get("code") or ""),
     )
     return {"review": review}

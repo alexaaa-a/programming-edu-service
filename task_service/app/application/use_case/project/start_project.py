@@ -114,17 +114,21 @@ class StartProjectUseCase:
                     created_at=now,
                     completed_at=None,
                     review_bug=getattr(template_task, "review_bug", None),
+                    hidden_tests=str(getattr(template_task, "tests", "") or ""),
                 )
                 task_created = await self.task_db.create_task(new_task)
                 if not task_created:
                     raise RuntimeError("task_create_failed")
                 created_tasks.append(new_task)
-            for new_task in created_tasks:
+            for order, new_task in enumerate(created_tasks):
                 await self.task_event_producer.produce_task_created(
                     task_id=new_task.task_id,
                     user_id=user_id,
                     status=new_task.status,
                     task_description=new_task.description,
+                    title=new_task.title,
+                    order=order,
+                    tests=new_task.hidden_tests or None,
                 )
                 published.append((new_task.task_id, new_task.description))
             existing = await self.career_db.get(user_id)

@@ -7,9 +7,12 @@ from submission_service.app.application.interfaces.services.token_service import
 from submission_service.app.application.use_case.submissions.get_submission import GetSubmissionUseCase
 from submission_service.app.application.use_case.submissions.get_submission_review import GetSubmissionReviewUseCase
 from submission_service.app.application.use_case.submissions.get_user_submission_stats import GetUserSubmissionStatsUseCase
+from submission_service.app.application.use_case.drills.get_drill import GetDrillUseCase
 from submission_service.app.application.use_case.submissions.get_user_trajectory import GetUserTrajectoryUseCase
 from submission_service.app.application.use_case.submissions.submit_solution import SubmitSubmissionUseCase
 from submission_service.app.presentation.api.v1.submissions.schema import (
+    DrillOffer,
+    TrajectoryNudge,
     Submission,
     Review,
     Submit,
@@ -38,6 +41,7 @@ def _review_or_none(review) -> Review | None:
                 "text": item.text,
                 "passed": item.passed,
                 "note": item.note,
+                "line": item.line,
             }
             for item in (review.criteria or [])
         ],
@@ -45,6 +49,7 @@ def _review_or_none(review) -> Review | None:
             {
                 "text": item.text,
                 "severity": item.severity,
+                "line": item.line,
             }
             for item in (review.challenges or [])
         ],
@@ -57,7 +62,20 @@ def _review_or_none(review) -> Review | None:
             }
             for item in (review.agent_path or [])
         ],
+        tests=_tests_or_none(getattr(review, "tests", None)),
     )
+
+
+def _tests_or_none(tests) -> dict | None:
+    if tests is None:
+        return None
+    return {
+        "status": tests.status,
+        "total": tests.total,
+        "passed": tests.passed,
+        "failed_names": list(tests.failed_names),
+        "detail": tests.detail,
+    }
 
 
 @router.get(
@@ -87,9 +105,10 @@ async def get_my_trajectory(
         token_service: FromDishka[TokenServiceInterface],
         uc: FromDishka[GetUserTrajectoryUseCase],
         task_id: int | None = None,
+        can_pick_task: bool = False,
 ):
     user_id = get_current_user_id_or_401(request=request, token_service=token_service)
-    result = await uc(user_id=user_id, task_id=task_id)
+    result = await uc(user_id=user_id, task_id=task_id, can_pick_task=can_pick_task)
     focus = result.focus
     return UserTrajectory(
         mastery=result.mastery,
@@ -112,7 +131,38 @@ async def get_my_trajectory(
         focus=TrajectoryFocus(**asdict(focus)) if focus is not None else None,
         recommendations=[TrajectoryRecommendation(**asdict(item)) for item in result.recommendations],
         next_task_id=result.next_task_id,
+        nudge=TrajectoryNudge(**result.nudge.as_dict()) if result.nudge is not None else None,
         model=result.model,
+    )
+
+
+@router.get(
+    "/submissions/me/drill",
+    status_code=status.HTTP_200_OK,
+    response_model=DrillOffer | None,
+    description="Короткое упражнение на навык, который начал забываться",
+)
+async def get_my_drill(
+        request: Request,
+        token_service: FromDishka[TokenServiceInterface],
+        uc: FromDishka[GetDrillUseCase],
+):
+    user_id = get_current_user_id_or_401(request=request, token_service=token_service)
+    pick = await uc(user_id=user_id)
+    if pick is None:
+        return None
+    return DrillOffer(
+        drill_id=pick.drill.id,
+        title=pick.drill.title,
+        prompt=pick.drill.prompt,
+        starter=pick.drill.starter,
+        minutes=pick.drill.minutes,
+        skill_id=pick.skill_id,
+        skill_title=pick.skill_title,
+        kind=pick.kind,
+        reason=pick.reason,
+        days_since=pick.days_since,
+        retention=round(pick.retention, 3),
     )
 
 
@@ -167,37 +217,7 @@ async def get_submission_review(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Не найдено"
         )
-
-    return Review(
-        score=review.score,
-        feedback=review.feedback,
-        suggestions=review.suggestions,
-        criteria=[
-            {
-                "id": item.id,
-                "text": item.text,
-                "passed": item.passed,
-                "note": item.note,
-            }
-            for item in (review.criteria or [])
-        ],
-        challenges=[
-            {
-                "text": item.text,
-                "severity": item.severity,
-            }
-            for item in (review.challenges or [])
-        ],
-        agent_path=[
-            {
-                "kind": item.kind,
-                "name": item.name,
-                "status": item.status,
-                "detail": item.detail,
-            }
-            for item in (review.agent_path or [])
-        ],
-    )
+    return _review_or_none(review)
 
 
 @router.post(

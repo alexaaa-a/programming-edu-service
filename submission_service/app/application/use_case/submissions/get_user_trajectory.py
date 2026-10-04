@@ -27,6 +27,7 @@ class GetUserTrajectoryUseCase:
             user_id: int,
             task_id: int | None = None,
             now: datetime | None = None,
+            can_pick_task: bool = False,
     ) -> TrajectoryResult:
         submissions = await self._submissions_db.get_all_user_submissions(user_id=user_id)
         current_status: str | None = None
@@ -48,6 +49,7 @@ class GetUserTrajectoryUseCase:
             config=TrajectoryConfig(max_rounds=max_rounds),
             current_task_status=current_status,
             tasks=await self._user_tasks(user_id),
+            can_pick_task=can_pick_task,
         )
 
     async def _user_tasks(self, user_id: int) -> list[TaskInfo]:

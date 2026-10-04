@@ -1,6 +1,7 @@
-import { useEffect } from "react";
-import Editor, { loader } from "@monaco-editor/react";
+import { useEffect, useState } from "react";
+import Editor, { DiffEditor, loader } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
+import type { ReviewMark } from "@/lib/review-marks";
 import editorWorker from "monaco-editor/editor/editor.worker.js?worker";
 import jsonWorker from "monaco-editor/language/json/json.worker.js?worker";
 import tsWorker from "monaco-editor/language/typescript/ts.worker.js?worker";
@@ -47,22 +48,67 @@ function defineDeskTheme() {
   });
 }
 
+const MARK_OWNER = "desk-review";
+
+const SEVERITY: Record<ReviewMark["severity"], monaco.MarkerSeverity> = {
+  error: monaco.MarkerSeverity.Error,
+  warning: monaco.MarkerSeverity.Warning,
+  info: monaco.MarkerSeverity.Info,
+};
+
 export function CodeEditor({
   value,
   onChange,
   language,
   onLanguageChange,
   readOnly,
+  marks = [],
+  compareWith = null,
+  focusLine = null,
 }: {
   value: string;
   onChange: (next: string) => void;
   language: EditorLang;
   onLanguageChange: (lang: EditorLang) => void;
   readOnly?: boolean;
+  marks?: ReviewMark[];
+  compareWith?: string | null;
+  focusLine?: number | null;
 }) {
+  const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
+
   useEffect(() => {
     defineDeskTheme();
   }, []);
+
+  useEffect(() => {
+    const model = editor?.getModel();
+    if (!model) return;
+    monaco.editor.setModelMarkers(
+      model,
+      MARK_OWNER,
+      marks
+        .filter((mark) => mark.line <= model.getLineCount())
+        .map((mark) => ({
+          severity: SEVERITY[mark.severity],
+          message: `${mark.title}: ${mark.message}`,
+          startLineNumber: mark.line,
+          endLineNumber: mark.line,
+          startColumn: model.getLineFirstNonWhitespaceColumn(mark.line) || 1,
+          endColumn: model.getLineMaxColumn(mark.line),
+        })),
+    );
+    return () => {
+      const current = editor?.getModel();
+      if (current) monaco.editor.setModelMarkers(current, MARK_OWNER, []);
+    };
+  }, [editor, marks, value, compareWith]);
+
+  useEffect(() => {
+    if (!focusLine || !editor) return;
+    editor.revealLineInCenter(focusLine);
+    editor.setPosition({ lineNumber: focusLine, column: 1 });
+  }, [editor, focusLine]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -84,15 +130,35 @@ export function CodeEditor({
           ))}
         </div>
         <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-          {readOnly ? "только чтение" : "workspace"}
+          {compareWith !== null ? "сравнение" : readOnly ? "только чтение" : "workspace"}
         </span>
       </div>
       <div className="min-h-0 flex-1">
+        {compareWith !== null ? (
+          <DiffEditor
+            theme="desk-dark"
+            language={language}
+            original={compareWith}
+            modified={value}
+            options={{
+              readOnly: true,
+              renderSideBySide: false,
+              minimap: { enabled: false },
+              fontSize: 13,
+              fontFamily: "Geist Mono, ui-monospace, SFMono-Regular, Menlo, monospace",
+              scrollBeyondLastLine: false,
+              automaticLayout: true,
+              wordWrap: "on",
+              overviewRulerLanes: 0,
+            }}
+          />
+        ) : (
         <Editor
           theme="desk-dark"
           language={language}
           value={value}
           onChange={(next) => onChange(next ?? "")}
+          onMount={(instance) => setEditor(instance)}
           options={{
             readOnly,
             minimap: { enabled: false },
@@ -107,8 +173,10 @@ export function CodeEditor({
             renderLineHighlight: "line",
             cursorBlinking: "smooth",
             overviewRulerLanes: 0,
+            renderValidationDecorations: "on",
           }}
         />
+        )}
       </div>
     </div>
   );

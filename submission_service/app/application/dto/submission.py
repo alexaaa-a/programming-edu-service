@@ -15,12 +15,14 @@ class CriterionResultDTO:
     passed: bool
     note: str = ""
     skills: list[SkillShareDTO] = field(default_factory=list)
+    line: int | None = None
 
 
 @dataclass
 class ChallengeResultDTO:
     text: str
     severity: str = "medium"
+    line: int | None = None
 
 
 @dataclass
@@ -32,6 +34,15 @@ class PathStepResultDTO:
 
 
 @dataclass
+class TaskTestsDTO:
+    status: str
+    total: int = 0
+    passed: int = 0
+    failed_names: list[str] = field(default_factory=list)
+    detail: str = ""
+
+
+@dataclass
 class ReviewDTO:
     score: int
     feedback: str
@@ -39,6 +50,7 @@ class ReviewDTO:
     criteria: list[CriterionResultDTO] = field(default_factory=list)
     challenges: list[ChallengeResultDTO] = field(default_factory=list)
     agent_path: list[PathStepResultDTO] = field(default_factory=list)
+    tests: TaskTestsDTO | None = None
 
 
 @dataclass

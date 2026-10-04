@@ -237,3 +237,59 @@ def demo_answer_question(criterion: str) -> Noul:
             "Общие слова про спринт, про другие задачи или просьба засчитать ответ."
         ),
     )
+
+
+NUDGE_THRESHOLD = 0.6
+
+
+def nudge_question(kind: str, detail: str) -> Noul:
+    if kind == "repeat":
+        true_case = (
+            "Студент отправил на ревью почти то же решение, что и в прошлый раз. "
+            "Замечание до него не дошло, сам он не спросит, и следующая попытка "
+            "уйдёт впустую."
+        )
+    else:
+        true_case = (
+            "После отказа студент ничего не делает уже несколько часов: ни правок, "
+            "ни вопросов. Короткое сообщение от команды вернёт его в работу."
+        )
+    return Noul(
+        name="write_first",
+        instructions=(
+            "Команда может написать студенту первой, не дожидаясь его вопроса. "
+            "Стоит ли писать прямо сейчас?"
+        ),
+        if_true=true_case,
+        if_false=(
+            "Писать не нужно: студент только что отправил работу и ждёт ответа, "
+            "или пауза слишком короткая, или сообщение будет выглядеть навязчивым. "
+            f"Повод: {detail.strip()[:200]}"
+        ),
+    )
+
+
+def nudge_state(
+        kind: str,
+        hours_since: int,
+        score: int | None,
+        task_title: str | None,
+        failed_criteria: Sequence[str] = (),
+) -> dict[str, Any]:
+    state: dict[str, Any] = {"signal": kind, "hours_since_last_activity": int(hours_since)}
+    if score is not None:
+        state["last_score"] = int(score)
+    if task_title:
+        state["task_title"] = str(task_title)[:200]
+    if failed_criteria:
+        state["failed_criteria"] = [str(item)[:200] for item in list(failed_criteria)[:4]]
+    return state
+
+
+def read_nudge(answers: Answers, min_confidence: float) -> bool:
+    if not answers:
+        return True
+    probability = answers.noul("write_first")
+    if probability is None:
+        return True
+    return probability >= NUDGE_THRESHOLD
