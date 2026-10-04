@@ -11,7 +11,7 @@ from user_service.app.infrastructure.logger import setup_logging
 from user_service.app.application.interfaces.kafka import UserEventProducerInterface
 from user_service.app.presentation.api.healthcheck import router as healthcheck_router
 from user_service.app.presentation.api.exception_handler import setup_error_handlers
-from user_service.app.presentation.api.v1.app import app as app_v1
+from user_service.app.presentation.api.v1.router import router as v1_router
 from monitoring_python.fastapi_observability import configure_observability
 
 
@@ -48,7 +48,7 @@ def create_app() -> FastAPI:
     container = create_container(settings)
     setup_dishka(container, app)
 
-    app.mount("/user/v1", app_v1)
+    app.include_router(v1_router, prefix="/user/v1")
     app.include_router(healthcheck_router, prefix="/user/health")
 
     configure_observability(app, service_name="user-service")

@@ -30,7 +30,7 @@ It is about 34,000 lines of Python across five services and 7,000 lines of TypeS
 
 6. **The task supply checks itself.** Writing tasks by hand is what runs out first. An admin types a topic and a model drafts the sprint, but nothing is published on the model's word: the server parses the brief, counts the acceptance criteria, runs the hidden tests against the author's reference solution, and then runs them again against a solution with a deliberate bug. Tests that stay green on broken code are thrown away, because they check nothing. See [where the tasks come from](#where-the-tasks-come-from).
 
-7. **Knowledge tracing on top of LLM review output.** Each acceptance criterion is mapped to one or two of 14 skills. A Bayesian knowledge tracing model with forgetting turns pass/fail outcomes into a per-skill estimate, and a planner turns that into a next step. I derived the model parameters from behavioural constraints instead of picking them by hand. See [the learning trajectory](#the-learning-trajectory), and [docs/trajectory.md](docs/trajectory.md) (in Russian) for the full derivation.
+7. **Knowledge tracing on top of LLM review output.** Each acceptance criterion is mapped to one or two of 14 skills. A Bayesian knowledge tracing model with forgetting turns pass/fail outcomes into a per-skill estimate, and a planner turns that into a next step. I derived the model parameters from behavioural constraints instead of picking them by hand.
 
 8. **The agents are audited too.** Every review and every chat turn records which steps ran. A process check lowers the score if required steps were skipped, and flags a mentor reply that pastes a complete solution.
 
@@ -323,7 +323,7 @@ Without `--run` it is text analysis. With it, every test file is run against an 
 
 ## The learning trajectory
 
-An earlier version of this was a hand-weighted formula over four numbers. It could say that a student was doing poorly, but not at what. I replaced it with a model of individual skills. [docs/trajectory.md](docs/trajectory.md) (in Russian) has the derivations, the references and the full tables; this is the summary.
+An earlier version of this was a hand-weighted formula over four numbers. It could say that a student was doing poorly, but not at what. I replaced it with a model of individual skills.
 
 ```mermaid
 flowchart LR
@@ -600,7 +600,7 @@ agent_service/        review graph, team chat, memory, evals
 frontend/             React client
 charts/ gitops/ infra/ ansible/   deployment definitions
 monitoring/ monitoring_python/    telemetry configuration and FastAPI instrumentation
-docs/                 trajectory model write-up, env template, images
+docs/                  env template, images
 ```
 
 ## Author
