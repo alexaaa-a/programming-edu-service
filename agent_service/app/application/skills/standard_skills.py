@@ -480,6 +480,8 @@ class BuildRetrievalQuerySkill:
             parts.append(str(context["task_description"]))
         if context.get("trajectory_briefing"):
             parts.append(str(context["trajectory_briefing"]))
+        if context.get("graph_memory_briefing"):
+            parts.append(str(context["graph_memory_briefing"]))
         failed = context.get("failed_criteria")
         if isinstance(failed, list) and failed:
             parts.append("Не закрыто: " + "; ".join(str(item) for item in failed[:4]))
@@ -524,6 +526,9 @@ class BuildChatPromptsSkill:
                 "не читай лекцию про формулу):\n"
                 f"{briefing}"
             )
+        memory = str(context.get("graph_memory_briefing") or "").strip()
+        if memory:
+            parts.append(memory)
         if parts:
             return "\n\n".join(parts)
         return (

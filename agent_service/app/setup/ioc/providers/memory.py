@@ -61,7 +61,7 @@ class MemoryProvider(Provider):
     ) -> MemoryInterface:
         embeddings = build_embedding_service(
             backend=settings.memory_settings.embedding_backend,
-            client=_embedding_client(openai_client, settings),
+            client=embedding_client_for(openai_client, settings),
             model=settings.openai_settings.embedding_model,
             logger=logger,
         )
@@ -136,7 +136,7 @@ class StudentProfileRepositoryProvider(Provider):
         return MongoStudentProfileRepository(collection)
 
 
-def _embedding_client(openai_client: AsyncOpenAI, settings: Settings) -> AsyncOpenAI:
+def embedding_client_for(openai_client: AsyncOpenAI, settings: Settings) -> AsyncOpenAI:
     extra = (settings.openai_settings.embedding_base_url or "").strip()
     if not extra:
         return openai_client

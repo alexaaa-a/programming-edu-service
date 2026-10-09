@@ -3,7 +3,13 @@ import uuid
 
 from agent_service.app.application.chat_transcript import chat_thread_id
 from agent_service.app.application.dto.chat import ChatTurnResult, ChatWithTeamResult
-from agent_service.app.application.interfaces import MemoryInterface
+from agent_service.app.application.graph_memory.episodes import chat_episode
+from agent_service.app.application.graph_memory.graph_briefing import graph_briefing
+from agent_service.app.application.interfaces import (
+    GraphMemoryInterface,
+    MemoryEpisodeQueue,
+    MemoryInterface,
+)
 from agent_service.app.application.interfaces.trajectory_gateway import (
     TrajectoryGatewayInterface,
 )
@@ -26,11 +32,15 @@ class ChatWithTeamUseCase:
             memory: MemoryInterface,
             tracer: LlmTracer | None = None,
             trajectory_gateway: TrajectoryGatewayInterface | None = None,
+            graph_memory: GraphMemoryInterface | None = None,
+            episode_queue: MemoryEpisodeQueue | None = None,
     ) -> None:
         self._orchestrator = orchestrator
         self._memory = memory
         self._tracer = tracer or get_noop_tracer()
         self._trajectory_gateway = trajectory_gateway
+        self._graph_memory = graph_memory
+        self._episode_queue = episode_queue
 
     async def __call__(
             self,
@@ -92,6 +102,15 @@ class ChatWithTeamUseCase:
             user_context["solo_only"] = True
         if (emma_briefing or "").strip():
             user_context["emma_briefing"] = emma_briefing.strip()
+        memory_briefing = await graph_briefing(
+            self._graph_memory,
+            user_id=user_id,
+            message=message,
+            task_title=task_title or "",
+            focus_skill=snapshot.focus_skill if snapshot is not None else "",
+        )
+        if memory_briefing:
+            user_context["graph_memory_briefing"] = memory_briefing
         if snapshot is not None:
             user_context["trajectory_action"] = snapshot.action
             if snapshot.focus_mentor:
@@ -175,6 +194,17 @@ class ChatWithTeamUseCase:
             task_title=task_title,
             task_description=task_description,
         )
+        await self._queue_graph_episode(
+            session_id=session_id,
+            user_id=user_id,
+            message=message,
+            speaker=format_speaker(member),
+            answer=turn.answer,
+            task_id=task_id,
+            task_title=task_title or "",
+            turn_id=resolved_turn,
+            mastery=_mastery_of(snapshot),
+        )
         await self._orchestrator.cleanup_turn(message, user_context)
 
         return ChatWithTeamResult(
@@ -187,6 +217,37 @@ class ChatWithTeamUseCase:
             advisors=list(turn.advisors),
             agent_path=list(turn.agent_path),
         )
+
+    async def _queue_graph_episode(
+            self,
+            session_id: str,
+            user_id: str | None,
+            message: str,
+            speaker: str,
+            answer: str,
+            task_id: int | None,
+            task_title: str,
+            turn_id: str,
+            mastery: dict[str, float],
+    ) -> None:
+        if self._episode_queue is None or not user_id:
+            return
+        try:
+            await self._episode_queue.enqueue(
+                chat_episode(
+                    user_id=str(user_id),
+                    session_id=session_id,
+                    message=message,
+                    speaker=speaker,
+                    answer=answer,
+                    task_id=str(task_id) if task_id is not None else None,
+                    task_title=task_title,
+                    turn_id=turn_id,
+                    mastery=mastery,
+                )
+            )
+        except Exception:
+            return
 
     async def _remember_episode(
             self,
@@ -224,6 +285,19 @@ class ChatWithTeamUseCase:
             await self._memory.save_document(text[:1200], metadata)
         except Exception:
             return
+
+
+def _mastery_of(snapshot: object | None) -> dict[str, float]:
+    if snapshot is None:
+        return {}
+    skill = str(getattr(snapshot, "focus_skill", "") or "").strip()
+    if not skill:
+        return {}
+    try:
+        level = float(getattr(snapshot, "focus_mastery", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return {}
+    return {skill: max(0.0, min(1.0, level))}
 
 
 def _msg_field(item: object, key: str) -> str:

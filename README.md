@@ -14,9 +14,9 @@ A student picks a track (backend, frontend or fullstack) and a level. They get a
 
 Between tasks, a knowledge model built from the review outcomes decides what happens next: fix one specific criterion, ask one specific teammate, repeat a skill that is fading, or take a particular task from the board. At the end of a sprint the student gets a performance-review letter with a grade and salary change. The whole thing is meant to feel like the first months of a job.
 
-It is about 34,000 lines of Python across five services and 7,000 lines of TypeScript, with 468 unit tests.
+It is about 39,000 lines of Python across five services and 8,000 lines of TypeScript, with 562 unit tests.
 
-## Ten things worth a look
+## Eleven things worth a look
 
 1. **A reviewer that cannot grade by feel.** The final score is computed. The LLM agents fill in a rubric, and the number comes from the rubric pass rate, capped by hard evidence: broken syntax, failing tests, objections from a second reviewer, skipped steps in the process. An agent cannot talk its way past a cap. See [the review pipeline](#the-review-pipeline).
 
@@ -30,13 +30,15 @@ It is about 34,000 lines of Python across five services and 7,000 lines of TypeS
 
 6. **The task supply checks itself.** Writing tasks by hand is what runs out first. An admin types a topic and a model drafts the sprint, but nothing is published on the model's word: the server parses the brief, counts the acceptance criteria, runs the hidden tests against the author's reference solution, and then runs them again against a solution with a deliberate bug. Tests that stay green on broken code are thrown away, because they check nothing. See [where the tasks come from](#where-the-tasks-come-from).
 
-7. **Knowledge tracing on top of LLM review output.** Each acceptance criterion is mapped to one or two of 14 skills. A Bayesian knowledge tracing model with forgetting turns pass/fail outcomes into a per-skill estimate, and a planner turns that into a next step. I derived the model parameters from behavioural constraints instead of picking them by hand.
+7. **Memory that knows when it was true.** What the team remembers about a student is a temporal knowledge graph, not a list of strings: every fact carries the moment it became true, the evidence behind it and a window that closes when it stops holding. Skill nodes are fixed rather than invented by a model, so the graph and the knowledge-tracing estimate talk about the same fourteen skills and get reconciled against each other. A fact may only be overturned by a source no weaker than its own, which is why "I always handle errors now" in the chat cannot erase a failing test. See [memory](#memory).
 
-8. **The agents are audited too.** Every review and every chat turn records which steps ran. A process check lowers the score if required steps were skipped, and flags a mentor reply that pastes a complete solution.
+8. **Knowledge tracing on top of LLM review output.** Each acceptance criterion is mapped to one or two of 14 skills. A Bayesian knowledge tracing model with forgetting turns pass/fail outcomes into a per-skill estimate, and a planner turns that into a next step. I derived the model parameters from behavioural constraints instead of picking them by hand. See [the learning trajectory](#the-learning-trajectory)
 
-9. **Decisions are typed, not generated.** The small choices inside the product (who should answer, is this worth remembering, which skill does this criterion test, did the student find the planted bug) go to a decision model that returns probabilities over options I define, not text. It cannot invent an option, and every call has a deterministic fallback behind a confidence gate. See [typed decisions](#typed-decisions).
+9. **The agents are audited too.** Every review and every chat turn records which steps ran. A process check lowers the score if required steps were skipped, and flags a mentor reply that pastes a complete solution.
 
-10. **The domain carries the motivation.** Grades, salary, a bonus that can be spent on extra help, a Friday demo, a night incident, a peer-review task where the student finds a planted bug in code written by an LLM, and badges that are awarded for closed work rather than time spent. What the student is shown depends on their grade. See [the career layer](#the-career-layer).
+10. **Decisions are typed, not generated.** The small choices inside the product (who should answer, is this worth remembering, which skill does this criterion test, did the student find the planted bug) go to a decision model that returns probabilities over options I define, not text. It cannot invent an option, and every call has a deterministic fallback behind a confidence gate. See [typed decisions](#typed-decisions).
+
+11. **The domain carries the motivation.** Grades, salary, a bonus that can be spent on extra help, a Friday demo, a night incident, a peer-review task where the student finds a planted bug in code written by an LLM, and badges that are awarded for closed work rather than time spent. What the student is shown depends on their grade. See [the career layer](#the-career-layer).
 
 ## Screens
 
@@ -80,7 +82,7 @@ flowchart TB
     GW --> US["<b>user_service</b><br/>accounts, roles<br/><i>MongoDB, Redis</i>"]
     GW --> TS["<b>task_service</b><br/>projects, board, career<br/><i>MongoDB, Redis</i>"]
     GW --> SS["<b>submission_service</b><br/>reviews, trajectory<br/><i>MongoDB</i>"]
-    GW --> AS["<b>agent_service</b><br/>review, chat, memory<br/><i>MongoDB, Redis, Chroma</i>"]
+    GW --> AS["<b>agent_service</b><br/>review, chat, memory<br/><i>MongoDB, Redis, Chroma, Neo4j</i>"]
     TS -.->|HTTP| SS
     AS -.->|HTTP| SS
     US <--> K{{"Kafka"}}
@@ -98,7 +100,7 @@ flowchart TB
 | `user_service` | Accounts, access and refresh tokens, sessions, admin roles | Sessions and role cache in Redis |
 | `task_service` | Project templates, sprints, the board, the close gate, career state | Read-through Redis cache in front of Mongo |
 | `submission_service` | Submissions, the attempt limit, review results, the learning trajectory | Keeps a local cache of task status and description, fed by events |
-| `agent_service` | The review graph, the team chat graph, memory, offline evals | LangGraph, ChromaDB, Langfuse tracing (optional) |
+| `agent_service` | The review graph, the team chat graph, memory, offline evals | LangGraph, ChromaDB, Graphiti over Neo4j (optional), Langfuse tracing (optional) |
 
 Events go over Kafka. Topic names come from settings.
 
@@ -461,16 +463,40 @@ What is shown by grade is decided in the client (`frontend/src/lib/career-rights
 
 | What | Where | Access |
 |---|---|---|
+| **What is true about the student** | Neo4j, one subgraph per student, facts with a validity window | Hybrid search over edges, filtered to the open window |
 | Best practices, bug patterns | ChromaDB, semantic layer, from Markdown files in `agent_service/app/infrastructure/knowledge` | Vector search |
 | Past reviews, chat episodes | ChromaDB, episodic layer, with age limits and recency weighting | Vector search, scoped by user |
-| **Student profile** | MongoDB, one document per student, at most two typical problems | Direct read by `user_id` |
+| Student profile | MongoDB, one document per student — a projection of the graph | Direct read by `user_id` |
+| Episodes awaiting ingest | MongoDB, durable outbox | Claimed in batches under a lease |
 | Chat transcripts | MongoDB, thread per user and task | Direct read |
 | Review and chat run state | Redis (LangGraph checkpoints, with a TTL) | By thread id |
 | Retrieval cache | Redis | By query |
 
-The student profile used to live in the vector store. It is a single short record per person, so similarity search added nothing: the record was either found or silently missing when its embedding did not rank. Now it is fetched by key.
+### A temporal knowledge graph of the student
 
-Four rules keep the vector layers from turning into a landfill:
+The vector layers answer "what looks like this". They cannot answer the question a mentor actually asks: *what is true about this student now, what used to be true, and what is it based on?* A flat profile cannot either — it is overwritten whole, with no time, no links and no provenance.
+
+So the facts about a student live in a temporal knowledge graph ([Graphiti](https://github.com/getzep/graphiti) over Neo4j), and the flat profile became a projection of it. Four decisions carry the design.
+
+**Skill nodes are fixed, not invented.** A graph whose entities are named by a language model fills up with synonyms: "error handling", "exceptions" and "bare except" become three nodes about one thing, and no query ever brings them back together. Here the skill vocabulary is closed and is the same fourteen skills the knowledge-tracing model uses. An extracted fact either resolves to one of them or does not enter the graph at all. Losing a fact is annoying; an unnamed node is worse, because nothing can ever find it. The payoff is that the qualitative model (the graph) and the quantitative one (BKT) talk about the same objects and can be reconciled against each other.
+
+**Facts have two timelines.** Each edge carries `valid_at` — when it became true in the world, which is the moment of the submission, not the moment the background worker got around to it — and `invalid_at`, which is null while the fact holds. A contradicted fact is closed, never deleted. That is what makes both questions answerable: "what holds now" and "how did this skill change", and it is why a student is not reminded of a habit they have already dropped.
+
+**Sources are ordered, and the order is enforced in the domain.** A fact is tagged `hidden_tests`, `review`, `trajectory` or `chat`, and a fact may only close another one if its source is no weaker. Without that rule, writing "I always handle errors now" in the chat is enough to erase what execution showed — and an extraction model will happily take such a sentence as a fact, because it is phrased as one. The ceiling on confidence works the same way: words are never "certainly so".
+
+**Deciding and phrasing are separate jobs.** The usual agentic-memory design lets one model decide what to keep and write it as prose, which both hoards junk and makes the result irreproducible. Here the language model phrases a fact but does not rule on it; the decision model picks an operation — add, reinforce, invalidate, skip — from an enumeration defined in code, returning probabilities rather than text, so it cannot invent a fifth one; and the domain checks that the chosen operation is allowed under the trust order. The last step matters more than it looks: the gate can confidently say "invalidate" because the student was convincing, and the domain still refuses. A typed choice narrows the answer space; it does not make the answer right.
+
+Everything a rule can derive is derived by code and never reaches a model: a failed acceptance criterion is a skill gap, a failed hidden test is a skill gap with the strongest source, a passing criterion under green tests is positive evidence. An error pattern is closed deterministically when the hidden tests pass and no criterion for its skill failed — so execution, not an opinion, is what clears a student's record.
+
+Writes never block a student. An episode goes into a durable outbox in MongoDB and is processed by a background worker; enqueueing is idempotent, so a redelivered event cannot double a fact.
+
+**Consolidation runs between sessions**, not per episode. It does four things and nothing else: a mistake seen three times becomes chronic and keeps its weight; everything else decays on a half-life per relation and closes below a floor; the graph is reconciled against the knowledge-tracing estimate, where the trajectory may overrule a review verdict but never an execution result; and near-duplicate error patterns merge. The plan is computed by pure functions, so the whole thing is tested without a database.
+
+The graph is optional and is deliberately **not** part of the readiness probe. Every call is bounded by a timeout, the adapter never raises, and when the graph is off, unreachable or still empty, reads fall back to the projected profile — which is exactly the behaviour that existed before the graph. There is also an explicit erasure path: a closed window is still personal data, so `DELETE /memory/me` drops the whole subgraph rather than marking it.
+
+### Keeping the vector layers clean
+
+Four rules keep them from turning into a landfill:
 
 - **Ownership is a filter in the store, not a filter after the search.** Private types carry a `user_id`, and it goes into the Chroma `where` clause for the episodic layer. Before, another student's documents could take up half of the top-k and be dropped afterwards, which cost recall for the student who was actually asking. Shared knowledge has no owner, so the filter is only applied when every requested type is private.
 - **A repeat merges instead of piling up.** Before writing, a near-duplicate of the same type and owner is looked up by cosine distance. If one is there, the new text replaces it under the same id, the first-seen date and the use counter survive, and the timestamp is refreshed, so a confirmed observation becomes fresh again. That is the forgetting curve of the trajectory model pointed the other way.
@@ -479,7 +505,8 @@ Four rules keep the vector layers from turning into a landfill:
 
 ## Testing and evaluation
 
-- **468 unit tests** (`submission_service` 128, `task_service` 110, `agent_service` 230). They cover the scorecard and its caps, the close gate, the knowledge model, the planner, memory rules (ownership filters, merging, reinforcement, both gates), checkpoint round trips, routing, the typed-question layer and its client, the badge rules, and the career rules. The decision model is tested against recorded request and response shapes, including a timeout, a 429, a malformed body, an option outside the enumeration, and the cooldown after repeated failures.
+- **562 unit tests** (`submission_service` 128, `task_service` 110, `agent_service` 324). They cover the scorecard and its caps, the close gate, the knowledge model, the planner, memory rules (ownership filters, merging, reinforcement, both gates), checkpoint round trips, routing, the typed-question layer and its client, the badge rules, and the career rules. The decision model is tested against recorded request and response shapes, including a timeout, a 429, a malformed body, an option outside the enumeration, and the cooldown after repeated failures.
+- **The knowledge graph is tested without a database.** The ontology, the trust order, the gates, the consolidation plan and the projection are pure functions, so 94 tests cover them directly: that a bare-except claim written in Russian cannot become an English slug, that a chat sentence cannot close what execution recorded, that the decision model's "invalidate" is refused when its source is weaker, that a faded fact is closed rather than deleted, that the knowledge-tracing estimate may overrule a review verdict but not a test result. The Neo4j adapter is tested against a fake client for the shape of what it writes, the filters it sends and the fact that it returns empty instead of raising when the graph is down.
 - **Execution is tested against real pytest output.** The hidden-test runner is exercised end to end on a working solution, on a broken one, on code that does not import and on a run that times out, with the JUnit report parsed in each case; the score caps are checked against the pass threshold. The agreement arithmetic is tested on hand-built tables, including perfect agreement, chance-level agreement, and the two kinds of mistake counted apart.
 - **The agreement metric** is served by `GET /submission/v1/internal/review-agreement` over stored reviews, as described above. It needs submissions to exist, so there are no numbers in this repository.
 - **Anchoring is tested for restraint, not just for hits.** The line-finding tests cover each source (model, text, snippet, symbol) and, as importantly, the cases that must stay unanchored: prose in quotes, common keywords, a remark with nothing to hold on to, and a line number outside the submitted code.
@@ -493,15 +520,15 @@ Four rules keep the vector layers from turning into a landfill:
 ## Observability and deployment
 
 - **Telemetry.** Services export OpenTelemetry traces to Tempo, logs go through Promtail to Loki, metrics go to Prometheus with Alertmanager, and Grafana ships with provisioned dashboards. Each graph node is a span. LLM calls can be traced in Langfuse (off by default).
-- **Compose.** `docker-compose.yml` starts the services, the client, Kafka and the observability stack.
-- **Kubernetes.** Helm charts for each service and an umbrella chart (`charts/`). Argo CD applications, Istio, Cilium, an HAProxy and Keepalived edge, external-secrets against Vault, and kube-prometheus-stack are described under `gitops/`. Terraform bootstraps namespaces and base secrets (`infra/`), and an Ansible role installs Kafka with Strimzi (`ansible/`).
+- **Compose.** `docker-compose.yml` starts the services, the client, Kafka, Neo4j and the observability stack.
+- **Kubernetes.** Helm charts for each service and an umbrella chart (`charts/`). MongoDB, Valkey and Neo4j run as workloads under `gitops/manifests/workloads/infrastructure/`; the graph is deliberately left out of the readiness probe, so a Neo4j outage does not take agent pods out of rotation. Argo CD applications, Istio, Cilium, an HAProxy and Keepalived edge, external-secrets against Vault, and kube-prometheus-stack are described under `gitops/`. Terraform bootstraps namespaces and base secrets (`infra/`), and an Ansible role installs Kafka with Strimzi (`ansible/`).
 - **CI.** A GitHub Actions workflow on a self-hosted runner builds the images with Kaniko, commits the new image tag to the Helm values, and triggers an Argo CD sync when credentials are configured.
 
 These are deployment definitions. I have not run them at scale.
 
 ## Running it
 
-You need Docker, a MongoDB and a Redis reachable from the containers (the compose file does not start them), and an API key for an OpenAI-compatible endpoint.
+You need Docker, a MongoDB and a Redis reachable from the containers (the compose file does not start them), and an API key for an OpenAI-compatible endpoint. Neo4j is in the compose file and is only needed if you switch the knowledge graph on.
 
 ```bash
 cp docs/.env.example .env      # fill in hosts, secrets and the LLM settings
@@ -509,6 +536,8 @@ docker compose up --build
 ```
 
 The decision model is optional. To switch it on, set `AGENT_SERVICE_JEV_ENABLED` and `SUBMISSION_SERVICE_JEV_ENABLED` to `true` and put an OpenRouter key in `*_JEV_API_KEY`; without them every decision takes its deterministic path.
+
+The knowledge graph is optional too and off by default. `docker compose up neo4j` starts it (Bolt on 7687, browser on 7474); set `AGENT_SERVICE_GRAPH_MEMORY_ENABLED=true` and `AGENT_SERVICE_NEO4J_PASSWORD` to switch it on. With it off, or with Neo4j unreachable, the team reads the projected profile instead and the service behaves exactly as it did before the graph. `AGENT_SERVICE_GRAPH_MEMORY_EXTRACTION_MODEL` can point the background extraction at a cheaper model, and `AGENT_SERVICE_GRAPH_MEMORY_MODEL_EXTRACTION_ENABLED=false` keeps only the facts that rules derive from tests and criteria.
 
 The template generator in the admin panel is on by default and needs no extra key beyond the LLM one; `AGENT_SERVICE_TEMPLATES_ENABLED=false` switches the endpoint off, `AGENT_SERVICE_TEMPLATES_MAX_REPAIR_ROUNDS` is how many times a rejected task goes back to the model, and `AGENT_SERVICE_USER_URL` is the user_service the role check goes to.
 
@@ -552,6 +581,8 @@ Python 3.12 is what the images use.
 - **The sandbox is process-level.** A subprocess with resource limits and a scrubbed environment is fine for a prototype and would need containers before untrusted use. Running student-written tests stays off because of it.
 - **Few tasks have tests.** A task without them behaves exactly as before: no Run button, no cap, no ground-truth label. The generator makes writing them cheaper, not automatic.
 - **Generated tasks are unmeasured.** The checks say a task is well-formed and that its tests discriminate. Nothing says a generated task teaches as well as a hand-written one, or that the sprints grow in difficulty the way a curriculum should. That comparison needs the same cohort the rest of the evaluation needs.
+- **The knowledge graph has not met a student.** Its rules are covered by tests and it behaves on synthetic episodes, but nothing says how much of what an extraction model writes about a real submission is worth keeping.
+- **Extraction across languages is unmeasured.** The student writes in Russian, the facts are stored in English, and what that translation step loses is exactly the sort of thing that needs measuring rather than assuming.
 - **Language and scope.** Prompts, personas and the interface are in Russian. Static analysis covers Python and JavaScript only.
 - **Little content.** No task corpus, and the eval dataset is small. The first superadmin is created by hand.
 - **Grade-dependent hints are client-side.** A determined student can see everything through the API, and `can_pick_task` is advice the client sends about itself. Neither moves the two things that are enforced server-side: which task the board opens and whether a task may be closed.
@@ -579,6 +610,10 @@ Things I would do next, in order: collect real submission logs from a small coho
 | [`quests.py`](task_service/app/application/quests.py) | Counters, badges and the goals built from them |
 | [`decisions/questions.py`](agent_service/app/application/decisions/questions.py), [`policies.py`](agent_service/app/application/decisions/policies.py) | Typed questions, and every question the product asks |
 | [`memory/layered_memory.py`](agent_service/app/infrastructure/memory/layered_memory.py) | Ownership filters, merging, reinforcement, rerank |
+| [`graph_memory/ontology.py`](agent_service/app/application/graph_memory/ontology.py) | The closed vocabulary of the knowledge graph |
+| [`graph_memory/trust.py`](agent_service/app/application/graph_memory/trust.py) | Source ranking, and what may overturn what |
+| [`graph_memory/curator.py`](agent_service/app/application/graph_memory/curator.py) | Rules, then the model, then the gate, then the domain |
+| [`graph_memory/consolidation.py`](agent_service/app/application/graph_memory/consolidation.py) | Forgetting, chronic patterns, reconciliation with BKT |
 
 ## Repository map
 
@@ -592,6 +627,8 @@ submission_service/   submissions, review loop, learning trajectory
   app/application/evaluation/   agreement between the review and the tests
 agent_service/        review graph, team chat, memory, evals
   app/application/review/       rubric, scorecard, adversarial check, process check
+  app/application/graph_memory/ ontology, trust rules, curator, consolidation
+  app/infrastructure/graph_memory/  Neo4j adapter, episode outbox, background workers
   app/application/decisions/    typed questions for the decision model
   app/application/tools/        static analysis and the hidden-test sandbox
   app/application/templates/    task generation and the checks before publishing
@@ -600,7 +637,7 @@ agent_service/        review graph, team chat, memory, evals
 frontend/             React client
 charts/ gitops/ infra/ ansible/   deployment definitions
 monitoring/ monitoring_python/    telemetry configuration and FastAPI instrumentation
-docs/                  env template, images
+docs/                 trajectory and memory write-ups, data model, diagrams, env template
 ```
 
 ## Author

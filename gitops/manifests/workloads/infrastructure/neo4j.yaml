@@ -1,0 +1,83 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j
+  namespace: dev
+  labels:
+    app.kubernetes.io/name: neo4j
+spec:
+  selector:
+    app.kubernetes.io/name: neo4j
+  ports:
+    - port: 7687
+      targetPort: bolt
+      name: bolt
+    - port: 7474
+      targetPort: http
+      name: http
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: neo4j
+  namespace: dev
+  labels:
+    app.kubernetes.io/name: neo4j
+spec:
+  serviceName: neo4j
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: neo4j
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: neo4j
+    spec:
+      containers:
+        - name: neo4j
+          # 5.26 LTS: версия, на которую ориентируется graphiti-core.
+          image: neo4j:5.26
+          ports:
+            - containerPort: 7687
+              name: bolt
+            - containerPort: 7474
+              name: http
+          env:
+            - name: NEO4J_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-credentials
+                  key: auth
+            - name: NEO4J_server_memory_heap_max__size
+              value: "512m"
+            - name: NEO4J_server_memory_pagecache_size
+              value: "256m"
+          readinessProbe:
+            tcpSocket:
+              port: bolt
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 768Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          # Стенд: том живёт столько же, сколько под. Память студента в графе
+          # восстановима — её можно собрать заново из сдач, — но на проде
+          # здесь должен стоять PersistentVolumeClaim.
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: neo4j-credentials
+  namespace: dev
+type: Opaque
+stringData:
+  auth: neo4j/neo4jpassword
+  password: neo4jpassword

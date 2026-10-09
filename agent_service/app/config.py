@@ -97,6 +97,50 @@ class MemorySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AGENT_SERVICE_MEMORY_")
 
 
+class Neo4jSettings(BaseSettings):
+    uri: str = "bolt://neo4j:7687"
+    user: str = "neo4j"
+    password: str = ""
+    database: str = "neo4j"
+
+    model_config = SettingsConfigDict(env_prefix="AGENT_SERVICE_NEO4J_")
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.uri.strip() and self.password.strip())
+
+    @property
+    def safe_uri(self) -> str:
+        raw = self.uri.strip()
+        if "@" not in raw:
+            return raw
+        scheme, _, rest = raw.partition("://")
+        return f"{scheme}://{rest.rpartition('@')[2]}" if rest else raw
+
+
+class GraphMemorySettings(BaseSettings):
+    enabled: bool = True
+    model_extraction_enabled: bool = True
+    extraction_model: str = ""
+    embedding_dim: int = 1536
+    max_coroutines: int = 4
+    read_timeout_sec: float = 8.0
+    write_timeout_sec: float = 25.0
+    read_in_review: bool = True
+    read_in_chat: bool = True
+    ingest_enabled: bool = True
+    ingest_batch_size: int = 4
+    ingest_idle_sleep_sec: float = 5.0
+    queue_lease_sec: int = 300
+    queue_max_attempts: int = 4
+    consolidation_enabled: bool = True
+    consolidation_interval_sec: float = 21_600.0
+    consolidation_first_delay_sec: float = 300.0
+    consolidation_max_students: int = 200
+
+    model_config = SettingsConfigDict(env_prefix="AGENT_SERVICE_GRAPH_MEMORY_")
+
+
 class ChatHistorySettings(BaseSettings):
     max_messages: int = 20
 
@@ -166,6 +210,8 @@ class Settings(BaseSettings):
     openai_settings: OpenAISettings = OpenAISettings()  # type: ignore[call-arg]
     jev_settings: JevSettings = JevSettings()
     memory_settings: MemorySettings = MemorySettings()
+    neo4j_settings: Neo4jSettings = Neo4jSettings()
+    graph_memory_settings: GraphMemorySettings = GraphMemorySettings()
     mongo_settings: MongoSettings = MongoSettings()  # type: ignore[call-arg]
     tinydb_settings: TinyDbSettings = TinyDbSettings()
     chat_history_settings: ChatHistorySettings = ChatHistorySettings()  # type: ignore[call-arg]

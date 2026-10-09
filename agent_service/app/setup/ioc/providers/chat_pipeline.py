@@ -8,7 +8,9 @@ from agent_service.app.application.graphs import compile_chat_graph
 from agent_service.app.application.interfaces import (
     ChatHistoryRepository,
     DecisionModelInterface,
+    GraphMemoryInterface,
     LLMInterface,
+    MemoryEpisodeQueue,
     MemoryInterface,
 )
 from agent_service.app.config import Settings
@@ -76,12 +78,17 @@ class ChatWithTeamUseCaseProvider(Provider):
             memory: MemoryInterface,
             tracer: LlmTracer,
             trajectory_gateway: TrajectoryGatewayInterface,
+            graph_memory: GraphMemoryInterface,
+            episode_queue: MemoryEpisodeQueue,
+            settings: Settings,
     ) -> ChatWithTeamUseCase:
         return ChatWithTeamUseCase(
             orchestrator=chat_orchestrator,
             memory=memory,
             tracer=tracer,
             trajectory_gateway=trajectory_gateway,
+            graph_memory=graph_memory if settings.graph_memory_settings.read_in_chat else None,
+            episode_queue=episode_queue if graph_memory.enabled else None,
         )
 
 

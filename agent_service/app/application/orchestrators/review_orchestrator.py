@@ -10,8 +10,10 @@ from agent_service.app.application.dto import (
     Review,
     TaskTestsResult,
 )
+from agent_service.app.application.graph_memory.episodes import review_episode
 from agent_service.app.application.interfaces import (
     LLMInterface,
+    MemoryEpisodeQueue,
     MemoryInterface,
     StudentProfileRepository,
 )
@@ -102,6 +104,7 @@ class ReviewOrchestrator:
             tracer: LlmTracer | None = None,
             review_graph: Any | None = None,
             student_profiles: StudentProfileRepository | None = None,
+            episode_queue: MemoryEpisodeQueue | None = None,
     ) -> None:
         self._reviewer_agent = reviewer_agent
         self._bug_agent = bug_agent
@@ -110,6 +113,7 @@ class ReviewOrchestrator:
         self._toolkit = toolkit
         self._memory = memory
         self._student_profiles = student_profiles
+        self._episode_queue = episode_queue
         self._llm = llm
         self._tracer = tracer or get_noop_tracer()
         if review_graph is None:
@@ -639,6 +643,14 @@ class ReviewOrchestrator:
             user_id=user_id,
             logger=logger,
         )
+        await self._queue_graph_episode(
+            review=review,
+            report=report,
+            task_id=task_id,
+            submission_id=submission_id,
+            user_id=user_id,
+            logger=logger,
+        )
         return review
 
     async def _challenge_team(
@@ -791,6 +803,29 @@ class ReviewOrchestrator:
             )
         except Exception:
             logger.exception("tools.past_reviews.save_failed")
+
+    async def _queue_graph_episode(
+            self,
+            review: Review,
+            report: ToolReport | None,
+            task_id: str | None,
+            submission_id: str | None,
+            user_id: str | None,
+            logger: logging.Logger,
+    ) -> None:
+        if self._episode_queue is None or not user_id:
+            return
+        try:
+            episode = review_episode(
+                user_id=str(user_id),
+                review=review,
+                report=report,
+                task_id=task_id,
+                submission_id=submission_id,
+            )
+            await self._episode_queue.enqueue(episode)
+        except Exception:
+            logger.exception("graph_memory.enqueue_failed submission=%s", submission_id)
 
 
 def _evaluate_path(

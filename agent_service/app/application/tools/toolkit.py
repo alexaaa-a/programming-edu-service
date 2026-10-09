@@ -1,7 +1,12 @@
 import logging
 from dataclasses import replace
 
-from agent_service.app.application.interfaces import MemoryInterface, StudentProfileRepository
+from agent_service.app.application.interfaces import (
+    GraphMemoryInterface,
+    MemoryInterface,
+    StudentProfileRepository,
+)
+from agent_service.app.application.tools.graph_facts import load_graph_facts
 from agent_service.app.application.tools.models import ToolFinding, ToolReport
 from agent_service.app.application.tools.past_reviews import (
     load_past_reviews,
@@ -19,9 +24,11 @@ class ReviewToolkit:
             memory: MemoryInterface,
             logger: logging.Logger | None = None,
             profiles: StudentProfileRepository | None = None,
+            graph: GraphMemoryInterface | None = None,
     ) -> None:
         self._memory = memory
         self._profiles = profiles
+        self._graph = graph
         self._logger = logger or logging.getLogger("agent_service")
 
     async def inspect(
@@ -71,7 +78,7 @@ class ReviewToolkit:
                 user_id=user_id,
             )
             findings.extend(past)
-            findings.extend(await load_student_notes(self._profiles, user_id=user_id))
+            findings.extend(await self._student_context(task_description, task_id, user_id))
         except Exception:
             self._logger.exception("tools.past_reviews.failed")
 
@@ -98,6 +105,24 @@ class ReviewToolkit:
             hidden.summary() if hidden is not None else "нет",
         )
         return report
+
+
+    async def _student_context(
+            self,
+            task_description: str,
+            task_id: str | None,
+            user_id: str | None,
+    ) -> list[ToolFinding]:
+        graph_facts = await load_graph_facts(
+            self._graph,
+            user_id=user_id,
+            task_description=task_description,
+            task_id=task_id,
+            logger=self._logger,
+        )
+        if graph_facts:
+            return graph_facts
+        return await load_student_notes(self._profiles, user_id=user_id)
 
 
 def _hidden_findings(run: HiddenTestRun) -> list[ToolFinding]:

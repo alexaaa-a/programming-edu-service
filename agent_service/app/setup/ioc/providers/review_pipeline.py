@@ -6,7 +6,9 @@ from agent_service.app.application.agents import AdversarialAgent, BugAgent, Rev
 from agent_service.app.application.agents.mentor_agent import MentorAgent
 from agent_service.app.application.graphs import compile_review_graph
 from agent_service.app.application.interfaces import (
+    GraphMemoryInterface,
     LLMInterface,
+    MemoryEpisodeQueue,
     MemoryInterface,
     StudentProfileRepository,
 )
@@ -20,6 +22,7 @@ from agent_service.app.application.orchestrators.review_orchestrator import (
     ReviewerAgentProtocol,
 )
 from agent_service.app.application.tools.toolkit import ReviewToolkit
+from agent_service.app.config import Settings
 from agent_service.app.application.use_cases.review_submission import ReviewSubmissionUseCase
 from agent_service.app.infrastructure.checkpoints.langgraph_saver import StoreBackedCheckpointSaver
 from agent_service.app.infrastructure.observability.agent_wrappers import (
@@ -98,18 +101,28 @@ class ReviewOrchestratorProvider(Provider):
             logger: logging.Logger,
             tracer: LlmTracer,
             langgraph_checkpointer: StoreBackedCheckpointSaver,
+            graph_memory: GraphMemoryInterface,
+            episode_queue: MemoryEpisodeQueue,
+            settings: Settings,
     ) -> ReviewOrchestrator:
+        read_graph = settings.graph_memory_settings.read_in_review
         return ReviewOrchestrator(
             reviewer_agent=reviewer_agent,
             bug_agent=bug_agent,
             mentor_agent=mentor_agent,
             adversarial_agent=adversarial_agent,
-            toolkit=ReviewToolkit(memory, logger=logger, profiles=student_profiles),
+            toolkit=ReviewToolkit(
+                memory,
+                logger=logger,
+                profiles=student_profiles,
+                graph=graph_memory if read_graph else None,
+            ),
             memory=memory,
             llm=llm,
             tracer=tracer,
             review_graph=compile_review_graph(checkpointer=langgraph_checkpointer),
             student_profiles=student_profiles,
+            episode_queue=episode_queue if graph_memory.enabled else None,
         )
 
 

@@ -9,6 +9,10 @@ from dishka.integrations.fastapi import setup_dishka
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from agent_service.app.infrastructure.graph_memory import (
+    MemoryConsolidationWorker,
+    MemoryIngestWorker,
+)
 from agent_service.app.infrastructure.kafka import SubmissionReviewConsumer
 from agent_service.app.infrastructure.logger import setup_logging
 from agent_service.app.config import Settings
@@ -17,7 +21,7 @@ from agent_service.app.presentation.api.healthcheck import router as healthcheck
 from agent_service.app.presentation.api.metrics import router as metrics_router
 from agent_service.app.presentation.api.v1.router import router as v1_router
 from agent_service.app.setup.ioc import create_container
-from agent_service.app.application.interfaces import MemoryInterface
+from agent_service.app.application.interfaces import GraphMemoryInterface, MemoryInterface
 from agent_service.app.application.use_cases import EvaluateRagSearchUseCase
 from agent_service.app.application.observability.tracing import reset_trace_id, set_trace_id
 from agent_service.app.application.observability.llm_trace import LlmTracer
@@ -55,6 +59,39 @@ async def _warm_memory(container: AsyncContainer, logger: logging.Logger) -> Non
         logger.exception("agent warmup failed")
 
 
+async def _start_graph_memory(
+        container: AsyncContainer,
+        logger: logging.Logger,
+) -> list[asyncio.Task[None]]:
+    graph: GraphMemoryInterface = await container.get(GraphMemoryInterface)
+    if not graph.enabled:
+        return []
+    settings: Settings = await container.get(Settings)
+    await graph.ensure_schema()
+
+    tasks: list[asyncio.Task[None]] = []
+    if settings.graph_memory_settings.ingest_enabled:
+        ingest: MemoryIngestWorker = await container.get(MemoryIngestWorker)
+        tasks.append(asyncio.create_task(ingest.run(), name="graph-memory-ingest"))
+    if settings.graph_memory_settings.consolidation_enabled:
+        consolidation: MemoryConsolidationWorker = await container.get(MemoryConsolidationWorker)
+        tasks.append(asyncio.create_task(consolidation.run(), name="graph-memory-consolidation"))
+    logger.info("graph_memory.workers_started count=%s", len(tasks))
+    return tasks
+
+
+async def _stop_tasks(tasks: list[asyncio.Task[None]]) -> None:
+    for task in tasks:
+        task.cancel()
+    for task in tasks:
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     container = app.state.dishka_container
@@ -66,10 +103,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.kafka_submission_review_task = consumer_task
     tracer: LlmTracer = await container.get(LlmTracer)
     warmup_task = asyncio.create_task(_warm_memory(container, logger))
+    try:
+        graph_tasks = await _start_graph_memory(container, logger)
+    except Exception:
+        logger.exception("graph_memory.startup_failed")
+        graph_tasks = []
+    app.state.graph_memory_tasks = graph_tasks
 
     try:
         yield
     finally:
+        await _stop_tasks(graph_tasks)
         warmup_task.cancel()
         try:
             await warmup_task
